@@ -27,14 +27,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $newArrival = isset($_POST['new_arrival']) ? 1 : 0;
         $status = $_POST['status'] ?? 'active';
         $sizes = !empty($_POST['sizes']) ? json_encode($_POST['sizes']) : null;
+        $colors = !empty($_POST['colors_edit']) ? $_POST['colors_edit'] : (!empty($_POST['colors']) ? json_encode($_POST['colors']) : null);
         $editId = (int)($_POST['id'] ?? 0);
 
         if ($editId) {
             $oldStmt = $db->prepare("SELECT new_arrival FROM products WHERE id = ?");
             $oldStmt->execute([$editId]);
             $oldArrival = $oldStmt->fetchColumn();
-            $stmt = $db->prepare("UPDATE products SET category_id=?, name_en=?, name_sw=?, slug=?, price=?, discount_price=?, quantity=?, brand=?, description_en=?, description_sw=?, featured=?, new_arrival=?, status=?, sizes=? WHERE id=?");
-            $stmt->execute([$categoryId, $nameEn, $nameSw, $slug, $price, $discountPrice, $quantity, $brand, $descEn, $descSw, $featured, $newArrival, $status, $sizes, $editId]);
+            $stmt = $db->prepare("UPDATE products SET category_id=?, name_en=?, name_sw=?, slug=?, price=?, discount_price=?, quantity=?, brand=?, description_en=?, description_sw=?, featured=?, new_arrival=?, status=?, sizes=?, colors=? WHERE id=?");
+            $stmt->execute([$categoryId, $nameEn, $nameSw, $slug, $price, $discountPrice, $quantity, $brand, $descEn, $descSw, $featured, $newArrival, $status, $sizes, $colors, $editId]);
             if (!empty($_FILES['image']['name'])) {
                 $path = uploadFile($_FILES['image']);
                 if ($path) {
@@ -51,9 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             redirect('index.php?action=products', 'Product updated.');
         } else {
-            $stmt = $db->prepare("INSERT INTO products (category_id, name_en, name_sw, slug, price, discount_price, quantity, brand, description_en, description_sw, featured, new_arrival, status, sizes, sku) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt = $db->prepare("INSERT INTO products (category_id, name_en, name_sw, slug, price, discount_price, quantity, brand, description_en, description_sw, featured, new_arrival, status, sizes, colors, sku) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $sku = strtoupper(substr($nameEn, 0, 3)) . '-' . time();
-            $stmt->execute([$categoryId, $nameEn, $nameSw, $slug, $price, $discountPrice, $quantity, $brand, $descEn, $descSw, $featured, $newArrival, $status, $sizes, $sku]);
+            $stmt->execute([$categoryId, $nameEn, $nameSw, $slug, $price, $discountPrice, $quantity, $brand, $descEn, $descSw, $featured, $newArrival, $status, $sizes, $colors, $sku]);
             $pid = $db->lastInsertId();
             if (!empty($_FILES['image']['name'])) {
                 $path = uploadFile($_FILES['image']);
@@ -64,6 +65,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             redirect('index.php?action=products', 'Product created.');
         }
+    } elseif ($actionPost === 'product_bulk_save') {
+        $ids = $_POST['ids'] ?? [];
+        $names = $_POST['name_en'] ?? [];
+        $prices = $_POST['price'] ?? [];
+        $discounts = $_POST['discount_price'] ?? [];
+        $qtys = $_POST['quantity'] ?? [];
+        $brands = $_POST['brand'] ?? [];
+        $statuses = $_POST['status'] ?? [];
+        $featured = $_POST['featured'] ?? [];
+        $arrivals = $_POST['new_arrival'] ?? [];
+        foreach ($ids as $i => $pid) {
+            $pid = (int)$pid;
+            if (!$pid) continue;
+            $nameEn = trim($names[$i] ?? '');
+            $slug = slugify($nameEn);
+            $price = (float)($prices[$i] ?? 0);
+            $discount = $discounts[$i] !== '' ? (float)$discounts[$i] : null;
+            $qty = (int)($qtys[$i] ?? 0);
+            $brand = trim($brands[$i] ?? '');
+            $status = $statuses[$i] ?? 'active';
+            $feat = in_array($pid, $featured) ? 1 : 0;
+            $arr = in_array($pid, $arrivals) ? 1 : 0;
+            $db->prepare("UPDATE products SET name_en=?, slug=?, price=?, discount_price=?, quantity=?, brand=?, featured=?, new_arrival=?, status=? WHERE id=?")
+                ->execute([$nameEn, $slug, $price, $discount, $qty, $brand, $feat, $arr, $status, $pid]);
+        }
+        redirect('index.php?action=products', 'Bulk update saved.');
+    } elseif ($actionPost === 'product_multi_save') {
+        $items = json_decode($_POST['products_json'] ?? '[]', true);
+        $created = 0;
+        foreach ($items as $i => $p) {
+            $imageData = null;
+            $fileKey = 'product_image_' . $i;
+            if (isset($_FILES[$fileKey]) && $_FILES[$fileKey]['tmp_name']) {
+                $ext = strtolower(pathinfo($_FILES[$fileKey]['name'], PATHINFO_EXTENSION));
+                $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+                if (in_array($ext, $allowed)) {
+                    $targetDir = __DIR__ . '/../uploads/products/';
+                    if (!is_dir($targetDir)) mkdir($targetDir, 0755, true);
+                    $filename = uniqid() . '.' . $ext;
+                    if (move_uploaded_file($_FILES[$fileKey]['tmp_name'], $targetDir . $filename)) {
+                        $imageData = 'uploads/products/' . $filename;
+                    }
+                }
+            }
+            $nameEn = trim($p['name'] ?? '');
+            if (!$nameEn) continue;
+            $slug = slugify($nameEn);
+            $sku = strtoupper(substr($nameEn, 0, 3)) . '-' . time() . '-' . $i;
+            $stmt = $db->prepare("INSERT INTO products (category_id, name_en, name_sw, slug, price, discount_price, quantity, brand, description_en, description_sw, featured, new_arrival, status, sizes, colors, sku) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                !empty($p['cat']) ? (int)$p['cat'] : null,
+                $nameEn,
+                trim($p['name_sw'] ?? ''),
+                $slug,
+                (float)($p['price'] ?? 0),
+                $p['discount'] !== '' ? (float)$p['discount'] : null,
+                (int)($p['qty'] ?? 0),
+                trim($p['brand'] ?? ''),
+                trim($p['desc_en'] ?? ''),
+                trim($p['desc_sw'] ?? ''),
+                !empty($p['featured']) ? 1 : 0,
+                !empty($p['arrival']) ? 1 : 0,
+                $p['status'] ?? 'active',
+                !empty($p['sizes']) ? json_encode($p['sizes']) : null,
+                !empty($p['colors']) ? json_encode($p['colors']) : null,
+                $sku,
+            ]);
+            $pid = $db->lastInsertId();
+            if ($imageData) $db->prepare("INSERT INTO product_images (product_id, image_path, is_primary) VALUES (?, ?, 1)")->execute([$pid, $imageData]);
+            $created++;
+        }
+        sendJson(['ok' => true, 'message' => "$created products created."]);
     } elseif ($actionPost === 'product_delete') {
         $db->prepare("DELETE FROM products WHERE id = ?")->execute([$id]);
         redirect('index.php?action=products', 'Product deleted.');
@@ -96,6 +169,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         require_once __DIR__ . '/../includes/notifications.php';
         notifyOrderUpdate($id, $status, $description);
         redirect('index.php?action=orders', 'Order status updated.');
+    } elseif ($actionPost === 'order_delete') {
+        $twoMonthsAgo = date('Y-m-d H:i:s', strtotime('-2 months'));
+        $check = $db->prepare("SELECT created_at FROM orders WHERE id = ?");
+        $check->execute([$id]); $order = $check->fetch();
+        if ($order && $order['created_at'] <= $twoMonthsAgo) {
+            $db->prepare("DELETE FROM order_items WHERE order_id = ?")->execute([$id]);
+            $db->prepare("DELETE FROM order_trackings WHERE order_id = ?")->execute([$id]);
+            $db->prepare("DELETE FROM payment_transactions WHERE order_id = ?")->execute([$id]);
+            $db->prepare("DELETE FROM orders WHERE id = ?")->execute([$id]);
+            redirect('index.php?action=orders', 'Order deleted.');
+        } else {
+            redirect('index.php?action=orders', 'Order cannot be deleted yet (2 month minimum).');
+        }
     }
     // Coupons
     elseif ($actionPost === 'coupon_save') {
@@ -216,7 +302,7 @@ switch ($action) {
             <div class="col-md-6">
                 <div class="border p-3">
                     <h6 class="fw-600 mb-3">Recent Orders</h6>
-                    <?php $orders = $db->query("SELECT * FROM orders ORDER BY created_at DESC LIMIT 5")->fetchAll(); ?>
+                    <?php $orders = $db->query("SELECT o.*, u.email as customer_email FROM orders o LEFT JOIN users u ON o.user_id = u.id ORDER BY o.created_at DESC LIMIT 5")->fetchAll(); ?>
                     <?php if ($orders): foreach ($orders as $o): ?>
                     <div class="d-flex justify-content-between border-bottom py-2 small">
                         <span><a href="index.php?action=orders&id=<?= $o['id'] ?>">#<?= escape($o['order_number']) ?></a></span>
@@ -241,20 +327,58 @@ switch ($action) {
         </div>
     <?php break;
 
-    case 'products':
-        $editProduct = null;
+    case 'products': ?>
+        <style>
+        .admin-page .size-selector input:checked + .size-option {
+            border-color: #FF8C00 !important;
+            background: #FFF3E0 !important;
+            color: #5a3e00 !important;
+            box-shadow: 0 0 0 3px rgba(255,140,0,0.2) !important;
+        }
+        </style>
+        <?php $editProduct = null;
         if ($id) { $stmt = $db->prepare("SELECT * FROM products WHERE id = ?"); $stmt->execute([$id]); $editProduct = $stmt->fetch(); }
         $products = $db->query("SELECT p.*, c.name_en as cat_name FROM products p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.created_at DESC")->fetchAll();
         $cats = $db->query("SELECT * FROM categories WHERE status = 1 ORDER BY name_en")->fetchAll();
         $sizesList = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+        $colorPalette = json_encode(colorPalette());
+        $colorSearchIndex = [];
+        foreach (colorPalette() as $en => $hex) {
+            $colorSearchIndex[mb_strtolower($en)] = $en;
+        }
+        foreach (colorNames() as $en => $names) {
+            $colorSearchIndex[mb_strtolower($names['sw'])] = $en;
+        }
     ?>
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="fw-600 mb-0">Products (<?= count($products) ?>)</h4>
-            <button class="btn-gold-sm" onclick="showForm('product')">+ Add Product</button>
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h4 class="fw-600 mb-0"><?= __t('products') ?> (<?= count($products) ?>)</h4>
+            <div class="d-flex gap-2">
+                <button class="btn-gold-sm" onclick="showMultiCreator()"><i class="fas fa-layer-group me-1"></i>+ <?= __t('add_products') ?></button>
+                <button class="btn btn-sm btn-outline-dark-custom" onclick="toggleBulkEditor()" id="bulkToggleBtn" style="display:none"><i class="fas fa-edit me-1"></i><?= __t('edit_product') ?> (<span id="bulkCount">0</span>)</button>
+            </div>
         </div>
-        <?php if ($editProduct || isset($_GET['show_form'])): ?>
+
+        <!-- Multi-Product Creator -->
+        <div id="multiCreator" class="border p-4 mb-4" style="display:none">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-600 mb-0"><i class="fas fa-images me-2 text-gold"></i><?= __t('add_products') ?> <?= __t('products') ?> from Images</h5>
+                <button class="btn btn-sm btn-outline-dark-custom" onclick="document.getElementById('multiCreator').style.display='none'"><?= __t('cancel') ?></button>
+            </div>
+            <div class="mb-3 p-4 text-center" id="dropZone" style="background:#c8bfa8;border:2px dashed #FF8C00;border-radius:12px;cursor:pointer" onclick="document.getElementById('multiFileInput').click()">
+                <i class="fas fa-cloud-upload-alt fa-3x" style="color:#5a3e00;margin-bottom:2px"></i>
+                <p class="fw-600 mb-1" style="color:#3a2a00">Click or drop product images here</p>
+                <small style="color:#3a2a00">Select multiple images at once — each becomes a product entry</small>
+                <input type="file" id="multiFileInput" accept="image/*" multiple style="display:none" onchange="handleMultiFiles(this.files)">
+            </div>
+            <div id="multiProductList"></div>
+            <div class="text-end mt-3" id="multiSaveArea" style="display:none">
+                <button class="btn btn-gold btn-lg" onclick="saveMultiProducts()"><i class="fas fa-save me-2"></i><?= __t('save') ?> <?= __t('products') ?></button>
+            </div>
+        </div>
+
+        <?php if ($editProduct): ?>
         <div class="border p-4 mb-4" id="productForm">
-            <h5 class="fw-600 mb-3"><?= $editProduct ? 'Edit Product' : 'New Product' ?></h5>
+            <h5 class="fw-600 mb-3"><?= __t('edit_product') ?></h5>
             <form method="POST" enctype="multipart/form-data">
                 <?= csrf() ?><input type="hidden" name="admin_action" value="product_save">
                 <?php if ($editProduct): ?><input type="hidden" name="id" value="<?= $editProduct['id'] ?>"><?php endif; ?>
@@ -284,11 +408,28 @@ switch ($action) {
                         </div>
                     </div>
                     <div class="col-md-4">
+                        <label class="form-label small">Colors <small>(type to search)</small></label>
+                        <div class="d-flex flex-wrap gap-1 align-items-center mb-1 edit-color-list" id="editColorList">
+                            <?php $selectedColors = $editProduct ? json_decode($editProduct['colors'] ?? '[]', true) : []; $pal = colorPalette(); ?>
+                            <?php foreach ($selectedColors as $sc): $hex = $pal[$sc] ?? '#ccc'; ?>
+                            <span class="d-inline-flex align-items-center gap-1 px-2 py-1 rounded small" style="background:<?= $hex ?>20;border:1px solid <?= $hex ?>;font-size:11px" data-color="<?= $sc ?>">
+                                <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:<?= $hex ?>;border:1px solid #999"></span> <?= $sc ?>
+                                <span style="cursor:pointer;color:#999" onclick="editRemoveColor(this)">✕</span>
+                            </span>
+                            <?php endforeach; ?>
+                        </div>
+                        <div style="position:relative">
+                            <input type="text" class="form-control form-control-sm" id="editColorInput" style="width:100%" placeholder="Search color..." oninput="editSearchColors(this)" onblur="setTimeout(function(){var d=document.getElementById('editColorDropdown');if(d)d.style.display='none';},200)" onfocus="editSearchColors(this)">
+                            <input type="hidden" name="colors_edit" id="editColorsHidden" value='<?= json_encode($selectedColors) ?>'>
+                            <div id="editColorDropdown" style="position:absolute;top:100%;left:0;right:0;z-index:10;background:#fff;border:1px solid #ddd;max-height:150px;overflow-y:auto;display:none"></div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
                         <label class="form-label small">Status</label>
                         <select name="status" class="form-select">
-                            <option value="active" <?= ($editProduct['status'] ?? '') === 'active' ? 'selected' : '' ?>>Active</option>
-                            <option value="inactive" <?= ($editProduct['status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inactive</option>
-                            <option value="draft" <?= ($editProduct['status'] ?? '') === 'draft' ? 'selected' : '' ?>>Draft</option>
+                            <option value="active" <?= ($editProduct['status'] ?? '') === 'active' ? 'selected' : '' ?>><?= __t('active') ?></option>
+                            <option value="inactive" <?= ($editProduct['status'] ?? '') === 'inactive' ? 'selected' : '' ?>><?= __t('inactive') ?></option>
+                            <option value="draft" <?= ($editProduct['status'] ?? '') === 'draft' ? 'selected' : '' ?>><?= __t('draft') ?></option>
                         </select>
                     </div>
                     <div class="col-md-4">
@@ -296,25 +437,61 @@ switch ($action) {
                         <input type="file" name="image" class="form-control">
                         <div class="form-check mt-2">
                             <input type="checkbox" name="featured" class="form-check-input" id="featured" <?= ($editProduct['featured'] ?? 0) ? 'checked' : '' ?>>
-                            <label class="form-check-label small" for="featured">Featured</label>
+                            <label class="form-check-label small" for="featured"><?= __t('featured') ?></label>
                         </div>
                         <div class="form-check mt-1">
                             <input type="checkbox" name="new_arrival" class="form-check-input" id="new_arrival" <?= ($editProduct['new_arrival'] ?? 0) ? 'checked' : '' ?>>
-                            <label class="form-check-label small" for="new_arrival"><i class="fas fa-star text-warning me-1"></i>New Arrival</label>
+                            <label class="form-check-label small" for="new_arrival"><i class="fas fa-star text-warning me-1"></i><?= __t('new_arrival') ?></label>
                         </div>
                     </div>
                 </div>
-                <button type="submit" class="btn btn-gold mt-3">Save Product</button>
-                <a href="index.php?action=products" class="btn btn-outline-dark-custom mt-3">Cancel</a>
+                <button type="submit" class="btn btn-gold mt-3"><?= __t('save') ?></button>
+                <a href="index.php?action=products" class="btn btn-outline-dark-custom mt-3"><?= __t('cancel') ?></a>
             </form>
         </div>
         <?php endif; ?>
+
+        <!-- Bulk Editor -->
+        <div id="bulkEditor" class="border p-4 mb-4" style="display:none">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-600 mb-0"><i class="fas fa-edit me-2 text-gold"></i><?= __t('edit_product') ?></h5>
+                <div>
+                    <button class="btn btn-sm btn-outline-dark-custom me-2" onclick="toggleBulkEditor()"><?= __t('cancel') ?></button>
+                    <button class="btn btn-gold-sm" onclick="document.getElementById('bulkForm').submit()"><i class="fas fa-save me-1"></i><?= __t('save') ?></button>
+                </div>
+            </div>
+            <form method="POST" id="bulkForm">
+                <?= csrf() ?><input type="hidden" name="admin_action" value="product_bulk_save">
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered" id="bulkTable">
+                        <thead>
+                            <tr>
+                                <th style="width:180px"><?= __t('name') ?></th>
+                                <th style="width:100px"><?= __t('price') ?></th>
+                                <th style="width:100px"><?= __t('discount') ?></th>
+                                <th style="width:70px"><?= __t('quantity') ?></th>
+                                <th style="width:120px"><?= __t('brand') ?></th>
+                                <th style="width:90px"><?= __t('status') ?></th>
+                                <th style="width:70px"><?= __t('featured') ?></th>
+                                <th style="width:70px"><?= __t('new_arrival') ?></th>
+                            </tr>
+                        </thead>
+                        <tbody id="bulkBody"></tbody>
+                    </table>
+                </div>
+            </form>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <label class="small text-muted"><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"> <?= __t('select_all') ?></label>
+        </div>
         <div class="table-responsive">
             <table class="table table-sm">
-                <thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Qty</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th style="width:32px"></th><th>ID</th><th><?= __t('name') ?></th><th><?= __t('category') ?></th><th><?= __t('price') ?></th><th><?= __t('quantity') ?></th><th><?= __t('status') ?></th><th></th></tr></thead>
                 <tbody>
                 <?php foreach ($products as $p): ?>
                 <tr>
+                    <td><input type="checkbox" class="product-checkbox" value="<?= $p['id'] ?>" data-name="<?= escape($p['name_en']) ?>" data-price="<?= $p['price'] ?>" data-discount="<?= $p['discount_price'] ?? '' ?>" data-qty="<?= $p['quantity'] ?>" data-brand="<?= escape($p['brand'] ?? '') ?>" data-status="<?= $p['status'] ?>" data-featured="<?= $p['featured'] ?>" data-arrival="<?= $p['new_arrival'] ?>" onchange="updateBulkBtn()"></td>
                     <td><?= $p['id'] ?></td>
                     <td><a href="<?= SITE_URL ?>/shop/index.php?product=<?= escape($p['slug']) ?>" target="_blank"><?= escape($p['name_en']) ?></a></td>
                     <td><small><?= escape($p['cat_name'] ?? '') ?></small></td>
@@ -331,6 +508,353 @@ switch ($action) {
                 </tbody>
             </table>
         </div>
+
+        <script>
+        var COLOR_PALETTE = <?= $colorPalette ?>;
+        var COLOR_SEARCH = <?= json_encode($colorSearchIndex) ?>;
+        var CATS = <?= json_encode(array_map(function($c){return ['id'=>$c['id'],'name'=>$c['name_en']];}, $cats)) ?>;
+        var multiProducts = [];
+
+        function showMultiCreator() {
+            document.getElementById('multiCreator').style.display = 'block';
+            document.getElementById('multiCreator').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function handleMultiFiles(files) {
+            if (!files.length) return;
+            var container = document.getElementById('multiProductList');
+            for (var i = 0; i < files.length; i++) {
+                var file = files[i];
+                var idx = multiProducts.length;
+                multiProducts.push({ file: file, data: null, rendered: false });
+                var reader = new FileReader();
+                reader.idx = idx;
+                reader.onload = (function(idx) {
+                    return function(e) {
+                        multiProducts[idx].data = e.target.result;
+                        appendProductRow(container, idx);
+                    };
+                })(idx);
+                reader.readAsDataURL(file);
+            }
+            document.getElementById('multiSaveArea').style.display = 'block';
+        }
+
+        function appendProductRow(container, idx) {
+            var p = multiProducts[idx];
+            if (!p.data || p.rendered) return;
+            p.rendered = true;
+            var div = document.createElement('div');
+            div.className = 'border rounded p-3 mb-3';
+            div.style.cssText = 'border:2px solid #FF8C00;border-radius:12px;margin-bottom:1rem;background:#c8bfa8;';
+            div.innerHTML = '<div class="row g-3 p-3">' +
+                '<div class="col-md-3"><img src="' + p.data + '" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;border:1px solid #e0d5c0"></div>' +
+                '<div class="col-md-9"><div class="row g-2">' +
+                '<div class="col-6"><label class="small fw-600" style="color:#5a3e00">Name (EN)</label><input type="text" class="form-control form-control-sm mp-name" placeholder="e.g. Red Dress"></div>' +
+                '<div class="col-6"><label class="small fw-600" style="color:#5a3e00">Name (SW)</label><input type="text" class="form-control form-control-sm mp-name-sw" placeholder="e.g. Gauni Jekundu"></div>' +
+                '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Price</label><input type="number" step="0.01" class="form-control form-control-sm mp-price" placeholder="TZS"></div>' +
+                '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Discount</label><input type="number" step="0.01" class="form-control form-control-sm mp-discount" placeholder="Optional"></div>' +
+                '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Qty</label><input type="number" class="form-control form-control-sm mp-qty" value="10"></div>' +
+                '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Brand</label><input type="text" class="form-control form-control-sm mp-brand" placeholder="INNOCE"></div>' +
+                '<div class="col-6"><label class="small fw-600" style="color:#5a3e00">Description (EN)</label><textarea class="form-control form-control-sm mp-desc-en" rows="2" placeholder="Product description in English"></textarea></div>' +
+                '<div class="col-6"><label class="small fw-600" style="color:#5a3e00">Description (SW)</label><textarea class="form-control form-control-sm mp-desc-sw" rows="2" placeholder="Maelezo ya bidhaa kwa Kiswahili"></textarea></div>' +
+                '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Category</label><select class="form-select form-select-sm mp-cat"><option value="">None</option>' + CATS.map(function(c){return '<option value="'+c.id+'">'+c.name+'</option>';}).join('') + '</select></div>' +
+                '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Status</label><select class="form-select form-select-sm mp-status"><option value="active">Active</option><option value="inactive">Inactive</option><option value="draft">Draft</option></select></div>' +
+                '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">&nbsp;</label><div class="d-flex gap-2 pt-1"><div class="form-check"><input type="checkbox" class="form-check-input mp-featured"><label class="form-check-label small fw-600" style="color:#5a3e00">Featured</label></div><div class="form-check"><input type="checkbox" class="form-check-input mp-arrival"><label class="form-check-label small fw-600" style="color:#5a3e00">New</label></div></div></div>' +
+                '<div class="col-md-6"><label class="small fw-600" style="color:#5a3e00">Sizes</label><div class="d-flex flex-wrap gap-1">' + ['XS','S','M','L','XL','XXL','3XL'].map(function(s){return '<label class="size-selector"><input type="checkbox" class="d-none mp-size" value="'+s+'"><span class="size-option" style="padding:2px 8px;font-size:11px;background:#fff;border:2px solid #e0e0e0">'+s+'</span></label>';}).join('') + '</div></div>' +
+                '<div class="col-md-6"><label class="small fw-600" style="color:#5a3e00">Colors <small>(type to search)</small></label><div class="d-flex flex-wrap gap-1 align-items-center"><div class="mp-colors-list d-flex flex-wrap gap-1"></div><div style="position:relative"><input type="text" class="form-control form-control-sm mp-color-input" style="width:160px" placeholder="Search color..." oninput="searchColors(this, ' + idx + ')" onblur="setTimeout(function(){var d=this.parentNode.querySelector(\'.mp-color-dropdown\');if(d)d.style.display=\'none\';}.bind(this),200)" onfocus="searchColors(this, ' + idx + ')"><div class="mp-color-dropdown" style="position:absolute;top:100%;left:0;right:0;z-index:10;background:#fff;border:1px solid #ddd;max-height:150px;overflow-y:auto;display:none"></div></div></div></div>' +
+                '</div></div>' +
+                '<div class="row px-3 pb-3"><div class="col-12 text-end"><button class="btn btn-gold-sm btn-sm" onclick="saveSingleProduct(' + idx + ')"><i class="fas fa-save me-1"></i>Save</button></div></div></div>';
+            container.appendChild(div);
+        }
+
+        function renderMultiProducts() {
+            var container = document.getElementById('multiProductList');
+            container.innerHTML = '';
+            multiProducts.forEach(function(p, idx) {
+                if (!p.data) return;
+                var div = document.createElement('div');
+                div.className = 'border rounded p-3 mb-3';
+                div.style.cssText = 'border:2px solid #FF8C00;border-radius:12px;margin-bottom:1rem;background:#c8bfa8;';
+                div.innerHTML = '<div class="row g-3 p-3">' +
+                    '<div class="col-md-3"><img src="' + p.data + '" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;border:1px solid #e0d5c0"></div>' +
+                    '<div class="col-md-9"><div class="row g-2">' +
+                    '<div class="col-6"><label class="small fw-600" style="color:#5a3e00">Name (EN)</label><input type="text" class="form-control form-control-sm mp-name" placeholder="e.g. Red Dress" value=""></div>' +
+                    '<div class="col-6"><label class="small fw-600" style="color:#5a3e00">Name (SW)</label><input type="text" class="form-control form-control-sm mp-name-sw" placeholder="e.g. Gauni Jekundu"></div>' +
+                    '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Price</label><input type="number" step="0.01" class="form-control form-control-sm mp-price" placeholder="TZS"></div>' +
+                    '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Discount</label><input type="number" step="0.01" class="form-control form-control-sm mp-discount" placeholder="Optional"></div>' +
+                    '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Qty</label><input type="number" class="form-control form-control-sm mp-qty" value="10"></div>' +
+                    '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Brand</label><input type="text" class="form-control form-control-sm mp-brand" placeholder="INNOCE"></div>' +
+                    '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Category</label><select class="form-select form-select-sm mp-cat"><option value="">None</option>' + CATS.map(function(c){return '<option value="'+c.id+'">'+c.name+'</option>';}).join('') + '</select></div>' +
+                    '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Status</label><select class="form-select form-select-sm mp-status"><option value="active">Active</option><option value="inactive">Inactive</option><option value="draft">Draft</option></select></div>' +
+                    '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">&nbsp;</label><div class="d-flex gap-2 pt-1"><div class="form-check"><input type="checkbox" class="form-check-input mp-featured"><label class="form-check-label small fw-600" style="color:#5a3e00">Featured</label></div><div class="form-check"><input type="checkbox" class="form-check-input mp-arrival"><label class="form-check-label small fw-600" style="color:#5a3e00">New</label></div></div></div>' +
+                    '<div class="col-12"><label class="small fw-600" style="color:#5a3e00">Sizes</label><div class="d-flex flex-wrap gap-1">' + ['XS','S','M','L','XL','XXL','3XL'].map(function(s){return '<label class="size-selector"><input type="checkbox" class="d-none mp-size" value="'+s+'"><span class="size-option" style="padding:2px 8px;font-size:11px;background:#fff;border:2px solid #e0e0e0">'+s+'</span></label>';}).join('') + '</div></div>' +
+                    '<div class="col-12"><label class="small fw-600" style="color:#5a3e00">Colors <small>(type to search)</small></label><div class="d-flex flex-wrap gap-1 align-items-center"><div class="mp-colors-list d-flex flex-wrap gap-1"></div><div style="position:relative"><input type="text" class="form-control form-control-sm mp-color-input" style="width:160px" placeholder="Search color..." oninput="searchColors(this, ' + idx + ')" onblur="setTimeout(function(){var d=this.parentNode.querySelector(\'.mp-color-dropdown\');if(d)d.style.display=\'none\';}.bind(this),200)" onfocus="searchColors(this, ' + idx + ')"><div class="mp-color-dropdown" style="position:absolute;top:100%;left:0;right:0;z-index:10;background:#fff;border:1px solid #ddd;max-height:150px;overflow-y:auto;display:none"></div></div></div></div>' +
+                    '</div></div>' +
+                    '<div class="row px-3 pb-3"><div class="col-12 text-end"><button class="btn btn-gold-sm btn-sm" onclick="saveSingleProduct(' + idx + ')"><i class="fas fa-save me-1"></i>Save</button></div></div></div>';
+                container.appendChild(div);
+            });
+        }
+
+        function searchColors(input, idx) {
+            var q = input.value.toLowerCase();
+            var dropdown = input.parentNode.querySelector('.mp-color-dropdown');
+            if (!q) { dropdown.style.display = 'none'; return; }
+            var matches = searchColorKeys(q);
+            if (!matches.length) { dropdown.style.display = 'none'; return; }
+            dropdown.innerHTML = '';
+            dropdown.style.display = 'block';
+            matches.forEach(function(c) {
+                var hex = COLOR_PALETTE[c];
+                var item = document.createElement('div');
+                item.className = 'd-flex align-items-center gap-2 px-2 py-1';
+                item.style.cursor = 'pointer';
+                item.onmouseenter = function(){ this.style.background = '#f0f0f0'; };
+                item.onmouseleave = function(){ this.style.background = ''; };
+                item.onmousedown = function(e){ e.preventDefault(); addColorToProduct(idx, c); };
+                item.innerHTML = '<span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:' + hex + ';border:1px solid #ccc"></span> <span class="small fw-600" style="color:#1a1a1a">' + c + '</span>';
+                dropdown.appendChild(item);
+            });
+        }
+
+        function addColorToProduct(idx, color) {
+            var container = document.getElementById('multiProductList').children[idx];
+            var list = container.querySelector('.mp-colors-list');
+            if (list.querySelector('[data-color="' + color + '"]')) return;
+            var badge = document.createElement('span');
+            badge.className = 'd-inline-flex align-items-center gap-1 px-2 py-1 rounded small';
+            badge.style.cssText = 'background:' + COLOR_PALETTE[color] + '20;border:1px solid ' + COLOR_PALETTE[color] + ';font-size:11px';
+            badge.dataset.color = color;
+            badge.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:' + COLOR_PALETTE[color] + ';border:1px solid #999"></span> ' + color + ' <span style="cursor:pointer;color:#999" onclick="this.parentElement.remove()">✕</span>';
+            list.appendChild(badge);
+            var input = container.querySelector('.mp-color-input');
+            input.value = '';
+            var dd = input.parentNode.querySelector('.mp-color-dropdown');
+            if (dd) dd.style.display = 'none';
+        }
+
+        function saveMultiProducts() {
+            var formData = new FormData();
+            formData.append('admin_action', 'product_multi_save');
+            formData.append('csrf_token', '<?= $_SESSION['csrf_token'] ?? '' ?>');
+
+            var products = [];
+            var container = document.getElementById('multiProductList');
+            var rows = container.querySelectorAll('.row.g-3');
+
+            rows.forEach(function(row, idx) {
+                var name = row.querySelector('.mp-name').value.trim();
+                if (!name) return;
+                var colors = [];
+                row.querySelectorAll('.mp-colors-list [data-color]').forEach(function(el){ colors.push(el.dataset.color); });
+                var sizes = [];
+                row.querySelectorAll('.mp-size:checked').forEach(function(el){ sizes.push(el.value); });
+                var p = {
+                    name: name,
+                    name_sw: row.querySelector('.mp-name-sw').value.trim(),
+                    price: row.querySelector('.mp-price').value,
+                    discount: row.querySelector('.mp-discount').value,
+                    qty: row.querySelector('.mp-qty').value,
+                    brand: row.querySelector('.mp-brand').value.trim(),
+                    desc_en: row.querySelector('.mp-desc-en').value.trim(),
+                    desc_sw: row.querySelector('.mp-desc-sw').value.trim(),
+                    cat: row.querySelector('.mp-cat').value,
+                    status: row.querySelector('.mp-status').value,
+                    featured: row.querySelector('.mp-featured').checked ? 1 : 0,
+                    arrival: row.querySelector('.mp-arrival').checked ? 1 : 0,
+                    sizes: sizes,
+                    colors: colors,
+                };
+                products.push(p);
+                if (multiProducts[idx] && multiProducts[idx].file) {
+                    formData.append('product_image_' + idx, multiProducts[idx].file, multiProducts[idx].file.name);
+                }
+            });
+
+            formData.append('products_json', JSON.stringify(products));
+
+            var btn = document.querySelector('#multiSaveArea .btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+
+            fetch('index.php', { method: 'POST', body: formData })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.ok) {
+                        window.location.href = 'index.php?action=products&msg=' + encodeURIComponent(data.message);
+                    } else {
+                        alert('Error: ' + (data.message || 'Unknown error'));
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-save me-2"></i>Save All Products';
+                    }
+                })
+                .catch(function() {
+                    alert('Connection error. Check console.');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-save me-2"></i>Save All Products';
+                });
+        }
+
+        function saveSingleProduct(idx) {
+            var container = document.getElementById('multiProductList').children[idx];
+            var row = container.querySelector('.row.g-3');
+            var name = row.querySelector('.mp-name').value.trim();
+            if (!name) { alert('Name is required'); return; }
+            var colors = [];
+            row.querySelectorAll('.mp-colors-list [data-color]').forEach(function(el){ colors.push(el.dataset.color); });
+            var sizes = [];
+            row.querySelectorAll('.mp-size:checked').forEach(function(el){ sizes.push(el.value); });
+            var p = {
+                name: name,
+                name_sw: row.querySelector('.mp-name-sw').value.trim(),
+                price: row.querySelector('.mp-price').value,
+                discount: row.querySelector('.mp-discount').value,
+                qty: row.querySelector('.mp-qty').value,
+                brand: row.querySelector('.mp-brand').value.trim(),
+                desc_en: row.querySelector('.mp-desc-en').value.trim(),
+                desc_sw: row.querySelector('.mp-desc-sw').value.trim(),
+                cat: row.querySelector('.mp-cat').value,
+                status: row.querySelector('.mp-status').value,
+                featured: row.querySelector('.mp-featured').checked ? 1 : 0,
+                arrival: row.querySelector('.mp-arrival').checked ? 1 : 0,
+                sizes: sizes,
+                colors: colors,
+            };
+            var formData = new FormData();
+            formData.append('admin_action', 'product_multi_save');
+            formData.append('csrf_token', '<?= $_SESSION['csrf_token'] ?? '' ?>');
+            formData.append('products_json', JSON.stringify([p]));
+            if (multiProducts[idx] && multiProducts[idx].file) {
+                formData.append('product_image_0', multiProducts[idx].file, multiProducts[idx].file.name);
+            }
+            var btn = container.querySelector('.btn-gold-sm');
+            var origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            fetch('index.php', { method: 'POST', body: formData })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.ok) {
+                        container.style.borderColor = '#28a745';
+                        btn.innerHTML = '<i class="fas fa-check"></i>';
+                        setTimeout(function(){ btn.innerHTML = origHtml; btn.disabled = false; }, 2000);
+                    } else {
+                        alert('Error: ' + (data.message || 'Unknown error'));
+                        btn.disabled = false;
+                        btn.innerHTML = origHtml;
+                    }
+                })
+                .catch(function() {
+                    alert('Connection error. Check console.');
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                });
+        }
+
+        function searchColorKeys(q) {
+            q = q.toLowerCase();
+            var seen = {}, results = [];
+            Object.keys(COLOR_SEARCH).forEach(function(name){
+                if (name.indexOf(q) !== -1) {
+                    var key = COLOR_SEARCH[name];
+                    if (!seen[key]) { seen[key] = true; results.push(key); }
+                }
+            });
+            return results;
+        }
+        function editSearchColors(input) {
+            var q = input.value.toLowerCase();
+            var dropdown = document.getElementById('editColorDropdown');
+            if (!q) { dropdown.style.display = 'none'; return; }
+            var matches = searchColorKeys(q);
+            if (!matches.length) { dropdown.style.display = 'none'; return; }
+            dropdown.innerHTML = '';
+            dropdown.style.display = 'block';
+            matches.forEach(function(c) {
+                var hex = COLOR_PALETTE[c];
+                var item = document.createElement('div');
+                item.className = 'd-flex align-items-center gap-2 px-2 py-1';
+                item.style.cursor = 'pointer';
+                item.onmouseenter = function(){ this.style.background = '#f0f0f0'; };
+                item.onmouseleave = function(){ this.style.background = ''; };
+                item.onmousedown = function(e){ e.preventDefault(); editAddColor(c); };
+                item.innerHTML = '<span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:' + hex + ';border:1px solid #ccc"></span> <span class="small fw-600" style="color:#1a1a1a">' + c + '</span>';
+                dropdown.appendChild(item);
+            });
+        }
+        function editAddColor(color) {
+            var list = document.getElementById('editColorList');
+            if (list.querySelector('[data-color="' + color + '"]')) return;
+            var hex = COLOR_PALETTE[color];
+            var badge = document.createElement('span');
+            badge.className = 'd-inline-flex align-items-center gap-1 px-2 py-1 rounded small';
+            badge.style.cssText = 'background:' + hex + '20;border:1px solid ' + hex + ';font-size:11px';
+            badge.dataset.color = color;
+            badge.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:' + hex + ';border:1px solid #999"></span> ' + color + ' <span style="cursor:pointer;color:#999" onclick="editRemoveColor(this)">✕</span>';
+            list.appendChild(badge);
+            editUpdateHidden();
+            document.getElementById('editColorInput').value = '';
+            document.getElementById('editColorDropdown').style.display = 'none';
+        }
+        function editRemoveColor(el) {
+            el.parentElement.remove();
+            editUpdateHidden();
+        }
+        function editUpdateHidden() {
+            var colors = [];
+            document.querySelectorAll('#editColorList [data-color]').forEach(function(el){ colors.push(el.dataset.color); });
+            document.getElementById('editColorsHidden').value = JSON.stringify(colors);
+        }
+        function toggleSelectAll(el) {
+            document.querySelectorAll('.product-checkbox').forEach(function(c) { c.checked = el.checked; });
+            updateBulkBtn();
+        }
+        function updateBulkBtn() {
+            var checked = document.querySelectorAll('.product-checkbox:checked');
+            var btn = document.getElementById('bulkToggleBtn');
+            var count = document.getElementById('bulkCount');
+            if (checked.length > 0) {
+                btn.style.display = 'inline-block';
+                count.textContent = checked.length;
+            } else {
+                btn.style.display = 'none';
+            }
+        }
+        function toggleBulkEditor() {
+            var editor = document.getElementById('bulkEditor');
+            if (editor.style.display !== 'none') {
+                editor.style.display = 'none';
+                return;
+            }
+            var checked = document.querySelectorAll('.product-checkbox:checked');
+            if (checked.length === 0) return;
+            var tbody = document.getElementById('bulkBody');
+            tbody.innerHTML = '';
+            checked.forEach(function(cb) {
+                var id = cb.value;
+                var name = cb.dataset.name;
+                var price = cb.dataset.price;
+                var discount = cb.dataset.discount;
+                var qty = cb.dataset.qty;
+                var brand = cb.dataset.brand;
+                var status = cb.dataset.status;
+                var featured = cb.dataset.featured === '1';
+                var arrival = cb.dataset.arrival === '1';
+                var tr = document.createElement('tr');
+                tr.innerHTML = '<td><input type="hidden" name="ids[]" value="' + id + '"><input type="text" name="name_en[]" class="form-control form-control-sm" value="' + name + '"></td>' +
+                    '<td><input type="number" step="0.01" name="price[]" class="form-control form-control-sm" value="' + price + '" required></td>' +
+                    '<td><input type="number" step="0.01" name="discount_price[]" class="form-control form-control-sm" value="' + discount + '" placeholder="None"></td>' +
+                    '<td><input type="number" name="quantity[]" class="form-control form-control-sm" value="' + qty + '"></td>' +
+                    '<td><input type="text" name="brand[]" class="form-control form-control-sm" value="' + brand + '"></td>' +
+                    '<td><select name="status[]" class="form-select form-select-sm"><option value="active"' + (status === 'active' ? ' selected' : '') + '>Active</option><option value="inactive"' + (status === 'inactive' ? ' selected' : '') + '>Inactive</option><option value="draft"' + (status === 'draft' ? ' selected' : '') + '>Draft</option></select></td>' +
+                    '<td class="text-center"><input type="checkbox" name="featured[]" value="' + id + '"' + (featured ? ' checked' : '') + '></td>' +
+                    '<td class="text-center"><input type="checkbox" name="new_arrival[]" value="' + id + '"' + (arrival ? ' checked' : '') + '></td>';
+                tbody.appendChild(tr);
+            });
+            editor.style.display = 'block';
+            editor.scrollIntoView({ behavior: 'smooth' });
+        }
+        </script>
     <?php break;
 
     case 'categories':
@@ -371,7 +895,7 @@ switch ($action) {
 
     case 'orders':
         if ($id) {
-            $stmt = $db->prepare("SELECT * FROM orders WHERE id = ?");
+            $stmt = $db->prepare("SELECT o.*, u.email as customer_email FROM orders o LEFT JOIN users u ON o.user_id = u.id WHERE o.id = ?");
             $stmt->execute([$id]); $order = $stmt->fetch();
             $items = $db->prepare("SELECT oi.*, p.name_en FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?");
             $items->execute([$id]); $items = $items->fetchAll();
@@ -383,10 +907,14 @@ switch ($action) {
             <div class="row g-3">
                 <div class="col-md-6">
                     <div class="border p-3">
-                        <p><strong>Customer:</strong> <?= escape($order['user_id']) ?> (ID)</p>
+                        <p><strong>Customer:</strong> <?= escape($order['customer_name'] ?: $order['customer_email'] ?: 'User #' . $order['user_id']) ?></p>
+                        <p><strong>Email:</strong> <?= escape($order['customer_email'] ?? '—') ?></p>
+                        <p><strong>Phone:</strong> <?= escape($order['customer_phone'] ?? '—') ?></p>
                         <p><strong>Total:</strong> <?= formatMoney($order['total']) ?></p>
                         <p><strong>Status:</strong> <span class="badge bg-<?= $order['status'] === 'delivered' ? 'success' : 'secondary' ?>"><?= ucfirst($order['status']) ?></span></p>
                         <p><strong>Payment:</strong> <?= ucwords(str_replace('_', ' ', $order['payment_method'])) ?> - <span class="text-<?= $order['payment_status'] === 'paid' ? 'success' : 'warning' ?>"><?= $order['payment_status'] ?></span></p>
+                        <p><strong>Placed:</strong> <?= date('M d, Y H:i', strtotime($order['created_at'])) ?></p>
+                        <p><strong>Delivery:</strong> <?= ($order['delivery_method'] ?? 'delivery') === 'pickup' ? 'Pick up at shop' : 'Delivery' ?></p>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -397,6 +925,15 @@ switch ($action) {
                             <select name="status" class="form-select"><?php foreach (['pending','confirmed','processing','packed','shipped','delivered','cancelled'] as $s): ?><option value="<?= $s ?>" <?= $order['status'] === $s ? 'selected' : '' ?>><?= ucfirst($s) ?></option><?php endforeach; ?></select>
                             <button type="submit" class="btn-gold-sm">Update</button>
                         </form>
+                        <?php $twoMonthsAgo = date('Y-m-d H:i:s', strtotime('-2 months')); ?>
+                        <?php if ($order['created_at'] <= $twoMonthsAgo): ?>
+                        <hr>
+                        <form method="POST" onsubmit="return confirm('Permanently delete this order?')"><?= csrf() ?>
+                            <input type="hidden" name="admin_action" value="order_delete">
+                            <input type="hidden" name="id" value="<?= $order['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-danger-custom"><i class="fas fa-trash me-1"></i>Delete Order</button>
+                        </form>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <div class="col-12">
@@ -410,12 +947,12 @@ switch ($action) {
             </div>
             <a href="index.php?action=orders" class="btn btn-outline-dark-custom btn-sm mt-3">&larr; Back</a>
         <?php } else {
-            $orders = $db->query("SELECT * FROM orders ORDER BY created_at DESC")->fetchAll(); ?>
+            $orders = $db->query("SELECT o.*, u.email as customer_email FROM orders o LEFT JOIN users u ON o.user_id = u.id ORDER BY o.created_at DESC")->fetchAll(); ?>
             <h4 class="fw-600 mb-3">Orders (<?= count($orders) ?>)</h4>
             <table class="table table-sm">
                 <thead><tr><th>Order #</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th>Date</th><th></th></tr></thead>
                 <tbody><?php foreach ($orders as $o): ?>
-                <tr><td>#<?= escape($o['order_number']) ?></td><td><small>User #<?= $o['user_id'] ?></small></td><td><?= formatMoney($o['total']) ?></td><td><span class="small text-<?= $o['payment_status'] === 'paid' ? 'success' : 'warning' ?>"><?= $o['payment_status'] ?></span></td><td><span class="badge bg-secondary"><?= ucfirst($o['status']) ?></span></td><td><small><?= date('M d', strtotime($o['created_at'])) ?></small></td><td><a href="index.php?action=orders&id=<?= $o['id'] ?>" class="btn btn-sm btn-dark-custom">View</a></td></tr>
+                <tr><td>#<?= escape($o['order_number']) ?></td><td><small><?= escape($o['customer_name'] ?: $o['customer_email'] ?: 'User #' . $o['user_id']) ?><br><?= escape($o['customer_phone']) ?></small></td><td><?= formatMoney($o['total']) ?></td><td><span class="small text-<?= $o['payment_status'] === 'paid' ? 'success' : 'warning' ?>"><?= $o['payment_status'] ?></span></td><td><span class="badge bg-secondary"><?= ucfirst($o['status']) ?></span></td><td><small><?= date('M d, H:i', strtotime($o['created_at'])) ?></small></td><td><a href="index.php?action=orders&id=<?= $o['id'] ?>" class="btn btn-sm btn-dark-custom">View</a></td></tr>
                 <?php endforeach; ?></tbody>
             </table>
         <?php } break;
@@ -773,8 +1310,10 @@ switch ($action) {
                     <div class="col-md-4"><label class="form-label small">Site Name</label><input type="text" name="site_name" class="form-control" value="<?= escape($settingsMap['site_name'] ?? SITE_NAME) ?>"></div>
                     <div class="col-md-4"><label class="form-label small">Currency</label><select name="currency" class="form-select"><?php foreach (['TZS','USD','KES','UGX'] as $c): ?><option value="<?= $c ?>" <?= ($settingsMap['currency'] ?? CURRENCY) === $c ? 'selected' : '' ?>><?= $c ?></option><?php endforeach; ?></select></div>
                     <div class="col-md-2"><label class="form-label small">Tax Rate (%)</label><input type="number" name="tax_rate" class="form-control" value="<?= $settingsMap['tax_rate'] ?? TAX_RATE ?>"></div>
-                    <div class="col-md-2"><label class="form-label small">Shipping Fee</label><input type="number" name="shipping_fee" class="form-control" value="<?= $settingsMap['shipping_fee'] ?? SHIPPING_FEE ?>"></div>
-                    <div class="col-md-4"><label class="form-label small">Free Shipping Min</label><input type="number" name="free_shipping_min" class="form-control" value="<?= $settingsMap['free_shipping_min'] ?? FREE_SHIPPING_MIN ?>"></div>
+                    <div class="col-md-3"><label class="form-label small">Shipping Threshold (TZS)</label><input type="number" name="shipping_threshold" class="form-control" placeholder="e.g. 50000" value="<?= $settingsMap['shipping_threshold'] ?? SHIPPING_THRESHOLD ?>"><small class="text-muted">Orders below this amount pay default rate</small></div>
+                    <div class="col-md-2"><label class="form-label small">Rate Below (%)</label><input type="number" step="0.1" name="shipping_rate_default" class="form-control" placeholder="e.g. 5" value="<?= $settingsMap['shipping_rate_default'] ?? SHIPPING_RATE_DEFAULT ?>"></div>
+                    <div class="col-md-2"><label class="form-label small">Rate Above (%)</label><input type="number" step="0.1" name="shipping_rate_reduced" class="form-control" placeholder="e.g. 2" value="<?= $settingsMap['shipping_rate_reduced'] ?? SHIPPING_RATE_REDUCED ?>"></div>
+                    <div class="col-md-3"><label class="form-label small">Free Shipping Min</label><input type="number" name="free_shipping_min" class="form-control" value="<?= $settingsMap['free_shipping_min'] ?? FREE_SHIPPING_MIN ?>"></div>
                     <div class="col-md-4"><label class="form-label small">Default Payment</label><select name="default_payment" class="form-select"><?php foreach (['mpesa'=>'M-Pesa','airtel_money'=>'Airtel Money','tigo_pesa'=>'Tigo Pesa','halopesa'=>'HaloPesa'] as $k=>$v): ?><option value="<?= $k ?>" <?= ($settingsMap['default_payment'] ?? 'mpesa') === $k ? 'selected' : '' ?>><?= $v ?></option><?php endforeach; ?><option value="beem" <?= ($settingsMap['default_payment'] ?? 'mpesa') === 'beem' ? 'selected' : '' ?>>Beem (All Networks)</option></select></div>
                 </div>
             </div>
@@ -946,7 +1485,7 @@ switch ($action) {
                     <label class="form-label small fw-600">Confirm Password</label>
                     <input type="password" name="password_confirm" class="form-control">
                 </div>
-                <button type="submit" class="btn btn-gold">Save Changes</button>
+                <button type="submit" class="btn btn-gold"><?= __t('save') ?></button>
             </form>
         </div>
     <?php break;

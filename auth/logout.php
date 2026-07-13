@@ -1,6 +1,5 @@
 <?php
 require_once __DIR__ . '/../config.php';
-session_start();
 
 // Get the Clerk session ID stored during login
 $clerkSessionId = $_SESSION['clerk_sid'] ?? '';

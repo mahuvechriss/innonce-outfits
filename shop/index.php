@@ -95,6 +95,19 @@ if ($productSlug) {
                         </div>
                     </div>
                     <?php endif; ?>
+                    <?php $colors = json_decode($product['colors'] ?? '[]', true); if ($colors): ?>
+                    <div class="mb-3">
+                        <label class="form-label fw-600"><i class="fas fa-palette me-1"></i><?= __('color') ?></label>
+                        <div class="d-flex gap-2 mt-1">
+                            <?php foreach ($colors as $col): $cNames = colorNames(); $cName = $cNames[$col] ?? ['en' => $col, 'sw' => $col]; ?>
+                            <label class="size-selector">
+                                <input type="radio" name="color" value="<?= escape($col) ?>" class="d-none">
+                                <span class="size-option"><?= escape(t($cName['en'], $cName['sw'])) ?></span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                     <div class="d-flex gap-2 align-items-center">
                         <div class="qty-selector">
                             <button type="button" class="qty-btn" onclick="var q=this.parentNode.querySelector('input');if(parseInt(q.value)>1)q.value--"><i class="fas fa-minus"></i></button>
@@ -107,7 +120,7 @@ if ($productSlug) {
                 </form>
                 <div class="mt-4 pt-3 border-top">
                     <div class="d-flex gap-4 small text-muted">
-                        <span><i class="fas fa-truck me-1"></i><?= __('free_shipping') ?> <?= formatMoney(FREE_SHIPPING_MIN) ?></span>
+                        <span><i class="fas fa-truck me-1"></i><?= __('free_shipping') ?> <?= formatMoney(getSetting('free_shipping_min', FREE_SHIPPING_MIN)) ?></span>
                         <span><i class="fas fa-undo me-1"></i><?= __('easy_returns') ?></span>
                         <span><i class="fas fa-shield-alt me-1"></i><?= __('secure_payment') ?></span>
                     </div>
@@ -176,8 +189,15 @@ if ($categorySlug) {
     $params[] = $categorySlug;
 }
 if ($search) {
-    $where[] = "(p.name_en LIKE ? OR p.name_sw LIKE ? OR p.brand LIKE ?)";
-    $params = array_merge($params, ["%$search%", "%$search%", "%$search%"]);
+    $colorWhere = ["p.name_en LIKE ?", "p.name_sw LIKE ?", "p.brand LIKE ?"];
+    $colorParams = ["%$search%", "%$search%", "%$search%"];
+    $matchedColors = expandSearchWithColors($search);
+    foreach ($matchedColors as $c) {
+        $colorWhere[] = "p.colors LIKE ?";
+        $colorParams[] = '%"' . $c . '"%';
+    }
+    $where[] = '(' . implode(' OR ', $colorWhere) . ')';
+    $params = array_merge($params, $colorParams);
 }
 if ($minPrice) { $where[] = "p.price >= ?"; $params[] = $minPrice; }
 if ($maxPrice) { $where[] = "p.price <= ?"; $params[] = $maxPrice; }

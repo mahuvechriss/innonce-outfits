@@ -9,6 +9,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: cart.php');
         exit;
     }
+    // Handle delivery method change (no redirect needed, continues below)
+    if (isset($_POST['delivery_method'])) {
+        $_SESSION['delivery_method'] = $_POST['delivery_method'] === 'pickup' ? 'pickup' : 'delivery';
+    }
     $action = $_POST['action'] ?? '';
     $productId = (int)($_POST['product_id'] ?? 0);
     $userId = $_SESSION['user_id'];
@@ -73,7 +77,14 @@ if (isLoggedIn()) {
 }
 
 $discount = $_SESSION['coupon']['discount'] ?? 0;
-$shipping = $subtotal >= FREE_SHIPPING_MIN ? 0 : SHIPPING_FEE;
+$deliveryMethod = $_SESSION['delivery_method'] ?? 'delivery';
+$shippingThreshold = (float)getSetting('shipping_threshold', SHIPPING_THRESHOLD);
+$shippingRate = $subtotal >= $shippingThreshold
+    ? (float)getSetting('shipping_rate_reduced', SHIPPING_RATE_REDUCED)
+    : (float)getSetting('shipping_rate_default', SHIPPING_RATE_DEFAULT);
+$shipping = $deliveryMethod === 'pickup' ? 0 : $subtotal * $shippingRate / 100;
+$freeShippingMin = (float)getSetting('free_shipping_min', FREE_SHIPPING_MIN);
+if ($subtotal >= $freeShippingMin) $shipping = 0;
 $taxRate = (float)(getSetting('tax_rate', TAX_RATE));
 $tax = $subtotal * $taxRate / 100;
 $total = $subtotal + $tax + $shipping - $discount;
@@ -153,6 +164,19 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                 </form>
                 <div class="d-flex justify-content-between mb-2"><span class="text-muted small"><?= __('subtotal') ?></span><span class="small"><?= formatMoney($subtotal) ?></span></div>
+                <form action="cart.php" method="POST" class="mb-2">
+                    <?= csrf() ?>
+                    <div class="d-flex gap-3 small">
+                        <label class="d-flex align-items-center gap-1" style="cursor:pointer">
+                            <input type="radio" name="delivery_method" value="delivery" <?= $deliveryMethod === 'delivery' ? 'checked' : '' ?> onchange="this.form.submit()">
+                            <span class="text-muted">Delivery</span>
+                        </label>
+                        <label class="d-flex align-items-center gap-1" style="cursor:pointer">
+                            <input type="radio" name="delivery_method" value="pickup" <?= $deliveryMethod === 'pickup' ? 'checked' : '' ?> onchange="this.form.submit()">
+                            <span class="text-muted">Pick up at shop</span>
+                        </label>
+                    </div>
+                </form>
                 <div class="d-flex justify-content-between mb-2"><span class="text-muted small"><?= __('shipping') ?></span><span class="small"><?= $shipping ? formatMoney($shipping) : '<span class="text-success"><i class="fas fa-check-circle me-1"></i>' . __('free') . '</span>' ?></span></div>
                 <div class="d-flex justify-content-between mb-2"><span class="text-muted small"><?= __('tax') ?> (<?= $taxRate ?>%)</span><span class="small"><?= formatMoney($tax) ?></span></div>
                 <?php if ($discount > 0): ?>
@@ -163,7 +187,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <a href="checkout.php" class="btn btn-gold w-100 mt-3"><i class="fas fa-lock me-2"></i><?= __('proceed_checkout') ?></a>
                 <?php if ($shipping > 0): ?>
                 <div class="mt-2 small text-muted text-center">
-                    <i class="fas fa-info-circle me-1"></i><?= __('free_shipping_note') ?> <?= formatMoney(FREE_SHIPPING_MIN - $subtotal) ?> <?= __('more') ?>
+                    <i class="fas fa-info-circle me-1"></i><?= __('free_shipping_note') ?> <?= formatMoney($freeShippingMin - $subtotal) ?> <?= __('more') ?>
                 </div>
                 <?php endif; ?>
             </div>

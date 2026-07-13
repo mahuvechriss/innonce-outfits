@@ -3,8 +3,14 @@ require_once __DIR__ . '/../config.php';
 
 $q = $_GET['q'] ?? '';
 if ($q) {
-    $stmt = $db->prepare("SELECT p.id, p.name_en, p.name_sw, p.slug, p.price, p.discount_price, pi.image_path as primary_image FROM products p LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1 WHERE p.status = 'active' AND (p.name_en LIKE ? OR p.name_sw LIKE ? OR p.brand LIKE ?) LIMIT 10");
-    $stmt->execute(["%$q%", "%$q%", "%$q%"]);
+    $colorWhere = ["p.name_en LIKE ?", "p.name_sw LIKE ?", "p.brand LIKE ?"];
+    $colorParams = ["%$q%", "%$q%", "%$q%"];
+    foreach (expandSearchWithColors($q) as $c) {
+        $colorWhere[] = "p.colors LIKE ?";
+        $colorParams[] = '%"' . $c . '"%';
+    }
+    $stmt = $db->prepare("SELECT p.id, p.name_en, p.name_sw, p.slug, p.price, p.discount_price, pi.image_path as primary_image FROM products p LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1 WHERE p.status = 'active' AND (" . implode(' OR ', $colorWhere) . ") LIMIT 10");
+    $stmt->execute($colorParams);
     $results = $stmt->fetchAll();
     if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
         sendJson($results);

@@ -3,17 +3,17 @@ require_once __DIR__ . '/../config.php';
 
 $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
 
-// Try to find reference from: GET param, GET externalId, GET reference_number, or body fields
+// Try to find reference from: GET param, GET externalId, or body fields
 $reference = $_GET['reference'] ?? $_GET['externalId'] ?? $input['externalId'] ?? '';
 
-// Beem callback: reference_number comes back as "PREFIX-REF"
-if (empty($reference) && !empty($input['reference_number'])) {
-    $parts = explode('-', $input['reference_number'], 2);
-    $reference = $parts[1] ?? $input['reference_number'];
-}
-if (empty($reference) && !empty($_GET['reference_number'])) {
-    $parts = explode('-', $_GET['reference_number'], 2);
-    $reference = $parts[1] ?? $_GET['reference_number'];
+// Beem callback sends camelCase: referenceNumber, transactionId
+// referenceNumber comes as "PREFIX-REF" — strip prefix to match our DB
+if (empty($reference)) {
+    $rawRef = $input['referenceNumber'] ?? $input['reference_number'] ?? $_GET['referenceNumber'] ?? $_GET['reference_number'] ?? '';
+    if ($rawRef) {
+        $parts = explode('-', $rawRef, 2);
+        $reference = $parts[1] ?? $rawRef;
+    }
 }
 
 if ($reference && $input) {
@@ -23,7 +23,7 @@ if ($reference && $input) {
 
     if ($transaction) {
         // AzamPay sends: status, transactionId, externalId, amount, message
-        // Beem sends: status, transaction_id, reference_number, amount
+        // Beem sends: status, transactionId, referenceNumber, amount, msisdn, timestamp
         $status = $input['status'] ?? 'failed';
         $transactionId = $input['transactionId'] ?? $input['transaction_id'] ?? null;
 
@@ -48,7 +48,13 @@ if ($reference && $input) {
         }
 
         http_response_code(200);
-        echo json_encode(['status' => 'ok']);
+        echo json_encode([
+            'amount' => $transaction['amount'],
+            'status' => $newStatus,
+            'referenceNumber' => $input['referenceNumber'] ?? ($input['reference_number'] ?? ''),
+            'statusMessage' => 'Payment processed successfully',
+            'transactionId' => $transactionId,
+        ]);
         exit;
     }
 }

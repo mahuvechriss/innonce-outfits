@@ -147,3 +147,63 @@ function __(string $key): string {
 function t(string $en, string $sw): string {
     return currentLang() === 'sw' ? $sw : $en;
 }
+
+function colorNames(): array {
+    return [
+        'Red' => ['en' => 'Red', 'sw' => 'Nyekundu'],
+        'Blue' => ['en' => 'Blue', 'sw' => 'Bluu'],
+        'Black' => ['en' => 'Black', 'sw' => 'Nyeusi'],
+        'White' => ['en' => 'White', 'sw' => 'Nyeupe'],
+        'Green' => ['en' => 'Green', 'sw' => 'Kijani'],
+        'Yellow' => ['en' => 'Yellow', 'sw' => 'Manjano'],
+        'Purple' => ['en' => 'Purple', 'sw' => 'Zambarau'],
+        'Pink' => ['en' => 'Pink', 'sw' => 'Waridi'],
+        'Orange' => ['en' => 'Orange', 'sw' => 'Chungwa'],
+        'Brown' => ['en' => 'Brown', 'sw' => 'Kahawia'],
+        'Grey' => ['en' => 'Grey', 'sw' => 'Kijivu'],
+        'Gold' => ['en' => 'Gold', 'sw' => 'Dhahabu'],
+        'Silver' => ['en' => 'Silver', 'sw' => 'Fedha'],
+        'Navy' => ['en' => 'Navy', 'sw' => 'Navy'],
+        'Maroon' => ['en' => 'Maroon', 'sw' => 'Maroon'],
+        'Beige' => ['en' => 'Beige', 'sw' => 'Beige'],
+        'Cream' => ['en' => 'Cream', 'sw' => 'Cream'],
+        'Teal' => ['en' => 'Teal', 'sw' => 'Teal'],
+    ];
+}
+
+function expandSearchWithColors(string $search): array {
+    $colors = colorNames();
+    $searchLower = mb_strtolower($search);
+    $matchedColors = [];
+    foreach ($colors as $en => $names) {
+        if (mb_strpos($searchLower, mb_strtolower($names['en'])) !== false ||
+            mb_strpos($searchLower, mb_strtolower($names['sw'])) !== false) {
+            $matchedColors[] = $en;
+        }
+    }
+    return $matchedColors;
+}
+
+function commonColors(): array {
+    return array_keys(colorNames());
+}
+
+function colorPalette(): array {
+    return [
+        'Red' => '#FF0000', 'Dark Red' => '#8B0000', 'Crimson' => '#DC143C', 'Maroon' => '#800000',
+        'Pink' => '#FFC0CB', 'Hot Pink' => '#FF69B4', 'Rose' => '#FF007F', 'Coral' => '#FF7F50',
+        'Orange' => '#FFA500', 'Dark Orange' => '#FF8C00', 'Peach' => '#FFDAB9', 'Amber' => '#FFBF00',
+        'Yellow' => '#FFFF00', 'Gold' => '#FFD700', 'Light Yellow' => '#FFFFE0', 'Lemon' => '#FFF700',
+        'Green' => '#008000', 'Lime' => '#00FF00', 'Olive' => '#808000', 'Teal' => '#008080',
+        'Cyan' => '#00FFFF', 'Mint' => '#98FF98', 'Forest' => '#228B22', 'Emerald' => '#50C878',
+        'Blue' => '#0000FF', 'Navy' => '#000080', 'Royal Blue' => '#4169E1', 'Sky Blue' => '#87CEEB',
+        'Baby Blue' => '#89CFF0', 'Turquoise' => '#40E0D0', 'Indigo' => '#4B0082',
+        'Purple' => '#800080', 'Lavender' => '#E6E6FA', 'Violet' => '#EE82EE', 'Plum' => '#DDA0DD',
+        'Brown' => '#A52A2A', 'Chocolate' => '#D2691E', 'Khaki' => '#F0E68C', 'Tan' => '#D2B48C',
+        'Beige' => '#F5F5DC', 'Cream' => '#FFFDD0', 'Ivory' => '#FFFFF0', 'Wheat' => '#F5DEB3',
+        'White' => '#FFFFFF', 'Off White' => '#FAF9F6', 'Snow' => '#FFFAFA',
+        'Grey' => '#808080', 'Silver' => '#C0C0C0', 'Charcoal' => '#36454F', 'Slate' => '#708090',
+        'Black' => '#000000', 'Jet Black' => '#0A0A0A',
+        'Burgundy' => '#800020', 'Mauve' => '#E0B0FF', 'Salmon' => '#FA8072', 'Mustard' => '#FFDB58',
+    ];
+}

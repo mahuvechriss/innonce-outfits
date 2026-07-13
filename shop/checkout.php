@@ -18,13 +18,27 @@ foreach ($items as $item) {
     $subtotal += $price * $item['quantity'];
 }
 $discount = $_SESSION['coupon']['discount'] ?? 0;
-$shipping = $subtotal >= FREE_SHIPPING_MIN ? 0 : SHIPPING_FEE;
+$deliveryMethod = $_POST['delivery_method'] ?? $_SESSION['delivery_method'] ?? 'delivery';
+$shippingThreshold = (float)getSetting('shipping_threshold', SHIPPING_THRESHOLD);
+$shippingRate = $subtotal >= $shippingThreshold
+    ? (float)getSetting('shipping_rate_reduced', SHIPPING_RATE_REDUCED)
+    : (float)getSetting('shipping_rate_default', SHIPPING_RATE_DEFAULT);
+$shipping = $deliveryMethod === 'pickup' ? 0 : $subtotal * $shippingRate / 100;
+$freeShippingMin = (float)getSetting('free_shipping_min', FREE_SHIPPING_MIN);
+if ($subtotal >= $freeShippingMin) $shipping = 0;
 $taxRate = (float)(getSetting('tax_rate', TAX_RATE));
 $tax = $subtotal * $taxRate / 100;
 $total = $subtotal + $tax + $shipping - $discount;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) { redirect('checkout.php', 'Invalid token.', 'error'); }
+
+    // Delivery method quick-switch (from mini-form)
+    if (isset($_POST['delivery_method']) && empty($_POST['name'])) {
+        $_SESSION['delivery_method'] = $_POST['delivery_method'] === 'pickup' ? 'pickup' : 'delivery';
+        header('Location: checkout.php');
+        exit;
+    }
 
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
@@ -49,8 +63,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $couponCode = $_SESSION['coupon']['code'] ?? null;
         $couponDiscount = $discount;
 
-        $stmt = $db->prepare("INSERT INTO orders (user_id, order_number, status, subtotal, tax, shipping, discount, total, payment_method, payment_status, currency, shipping_address, coupon_code, coupon_discount) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, 'unpaid', 'TZS', ?, ?, ?)");
-        $stmt->execute([$userId, $orderNumber, $subtotal, $tax, $shipping, $discount, $total, $paymentMethod, $shippingAddress, $couponCode, $couponDiscount]);
+        $stmt = $db->prepare("INSERT INTO orders (user_id, customer_name, customer_phone, order_number, status, subtotal, tax, shipping, delivery_method, discount, total, payment_method, payment_status, currency, shipping_address, coupon_code, coupon_discount) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, 'unpaid', 'TZS', ?, ?, ?)");
+        $stmt->execute([$userId, $name, $phone, $orderNumber, $subtotal, $tax, $shipping, $deliveryMethod, $discount, $total, $paymentMethod, $shippingAddress, $couponCode, $couponDiscount]);
         $orderId = $db->lastInsertId();
 
         foreach ($items as $item) {
@@ -191,6 +205,33 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
+                <div class="form-card p-4 mb-4">
+                    <h5 class="fw-700 mb-3"><i class="fas fa-truck me-2 text-gold"></i>Delivery Method</h5>
+                    <form id="deliveryForm" method="POST" style="display:none"><?= csrf() ?><input type="hidden" name="delivery_method" id="deliveryInput"></form>
+                    <div class="d-flex gap-4">
+                        <label class="payment-option flex-grow-1" style="cursor:pointer">
+                            <input type="radio" name="delivery_method" value="delivery" <?= $deliveryMethod === 'delivery' ? 'checked' : '' ?> onchange="document.getElementById('deliveryInput').value=this.value;document.getElementById('deliveryForm').submit()">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="fas fa-truck fa-lg" style="color:#FF8C00"></i>
+                                <div>
+                                    <strong>Delivery</strong>
+                                    <br><small class="text-muted">Ship to my address</small>
+                                </div>
+                            </div>
+                        </label>
+                        <label class="payment-option flex-grow-1" style="cursor:pointer">
+                            <input type="radio" name="delivery_method" value="pickup" <?= $deliveryMethod === 'pickup' ? 'checked' : '' ?> onchange="document.getElementById('deliveryInput').value=this.value;document.getElementById('deliveryForm').submit()">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="fas fa-store fa-lg" style="color:#FF8C00"></i>
+                                <div>
+                                    <strong>Pick up at shop</strong>
+                                    <br><small class="text-muted">No delivery fee</small>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
                 <div class="form-card p-4">
                     <h5 class="fw-700 mb-3"><i class="fas fa-credit-card me-2 text-gold"></i><?= __('payment_method') ?></h5>
                     <div class="row g-3">
@@ -245,6 +286,10 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                     <hr>
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('subtotal') ?></span><span><?= formatMoney($subtotal) ?></span></div>
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Delivery</span>
+                        <span class="small"><?= $deliveryMethod === 'pickup' ? 'Pick up at shop' : 'Delivery' ?></span>
+                    </div>
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('shipping') ?></span><span><?= $shipping ? formatMoney($shipping) : '<span class="text-success"><i class="fas fa-check-circle me-1"></i>' . __('free') . '</span>' ?></span></div>
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('tax') ?></span><span><?= formatMoney($tax) ?></span></div>
                     <?php if ($discount > 0): ?>

@@ -6,6 +6,7 @@ $pendingReviews    = $db->query("SELECT COUNT(*) FROM product_reviews WHERE stat
 $draftProducts     = $db->query("SELECT COUNT(*) FROM products WHERE status = 'draft'")->fetchColumn();
 $onlineCustomers   = $db->query("SELECT COUNT(*) FROM users WHERE role='customer' AND last_activity >= NOW() - INTERVAL 5 MINUTE")->fetchColumn();
 require_once __DIR__ . '/../../includes/notifications.php';
+require_once __DIR__ . '/lang.php';
 $unreadNotifs = getUnreadNotificationCount($_SESSION['user_id']);
 ?>
 <!DOCTYPE html>
@@ -28,6 +29,9 @@ $unreadNotifs = getUnreadNotificationCount($_SESSION['user_id']);
         </button>
         <a class="navbar-brand fw-bold" href="index.php"><span style="color: var(--orange, #FF8C00);">INNOCE</span> Admin</a>
         <div class="d-flex align-items-center gap-3 ms-auto">
+            <a href="lang_switch.php?lang=<?= $admin_lang === 'sw' ? 'en' : 'sw' ?>&redirect=<?= urlencode($_SERVER['PHP_SELF'] . '?' . $_SERVER['QUERY_STRING']) ?>" class="btn btn-outline-light btn-sm fw-bold" style="font-size:13px;letter-spacing:0.5px">
+                <i class="fas fa-language"></i> <?= $admin_lang === 'sw' ? 'EN' : 'SW' ?>
+            </a>
             <button class="theme-toggle" id="themeToggle" title="Toggle dark/light mode" onclick="toggleTheme()">
                 <i class="fas fa-moon"></i>
             </button>
@@ -41,8 +45,8 @@ $unreadNotifs = getUnreadNotificationCount($_SESSION['user_id']);
                     <div id="adminNotifList" class="py-1 text-center text-muted small py-3">Loading...</div>
                 </div>
             </div>
-            <a href="<?= SITE_URL ?>/index.php" class="btn btn-outline-light btn-sm"><i class="fas fa-external-link-alt"></i> View Site</a>
-            <a href="<?= SITE_URL ?>/auth/logout.php" class="btn btn-outline-light btn-sm"><i class="fas fa-sign-out-alt"></i> Logout</a>
+            <a href="<?= SITE_URL ?>/index.php" class="btn btn-outline-light btn-sm"><i class="fas fa-external-link-alt"></i> <?= __t('view_site') ?></a>
+            <a href="<?= SITE_URL ?>/auth/logout.php" class="btn btn-outline-light btn-sm"><i class="fas fa-sign-out-alt"></i> <?= __t('logout') ?></a>
         </div>
     </div>
 </nav>
@@ -50,20 +54,20 @@ $unreadNotifs = getUnreadNotificationCount($_SESSION['user_id']);
     <div class="row">
         <div class="col-md-2 bg-dark p-3 admin-sidebar" style="min-height: calc(100vh - 56px);">
             <nav class="nav flex-column position-relative">
-                <a class="nav-link text-white-50 <?= $action === 'dashboard' ? 'text-white fw-600' : '' ?>" href="index.php"><i class="fas fa-tachometer-alt me-2"></i>Dashboard</a>
-                <a class="nav-link text-white-50 <?= $action === 'products' ? 'text-white fw-600' : '' ?>" href="index.php?action=products"><i class="fas fa-box me-2"></i>Products<?php if ($draftProducts): ?><span class="badge bg-warning text-dark ms-auto"><?= $draftProducts ?></span><?php endif; ?></a>
-                <a class="nav-link text-white-50 <?= $action === 'categories' ? 'text-white fw-600' : '' ?>" href="index.php?action=categories"><i class="fas fa-tags me-2"></i>Categories</a>
-                <a class="nav-link text-white-50 <?= $action === 'orders' ? 'text-white fw-600' : '' ?>" href="index.php?action=orders"><i class="fas fa-shopping-cart me-2"></i>Orders<?php if ($pendingOrders): ?><span class="badge bg-warning text-dark ms-auto"><?= $pendingOrders ?></span><?php endif; ?></a>
-                <a class="nav-link text-white-50 <?= $action === 'coupons' ? 'text-white fw-600' : '' ?>" href="index.php?action=coupons"><i class="fas fa-percent me-2"></i>Coupons</a>
-                <a class="nav-link text-white-50 <?= $action === 'reviews' ? 'text-white fw-600' : '' ?>" href="index.php?action=reviews"><i class="fas fa-star me-2"></i>Reviews<?php if ($pendingReviews): ?><span class="badge bg-warning text-dark ms-auto"><?= $pendingReviews ?></span><?php endif; ?></a>
-                <a class="nav-link text-white-50 <?= $action === 'contacts' ? 'text-white fw-600' : '' ?>" href="index.php?action=contacts"><i class="fas fa-envelope me-2"></i>Messages<?php if ($unreadMessages): ?><span class="badge bg-danger ms-auto"><?= $unreadMessages ?></span><?php endif; ?></a>
-                <a class="nav-link text-white-50 <?= $action === 'customers' ? 'text-white fw-600' : '' ?>" href="index.php?action=customers"><i class="fas fa-users me-2"></i>Customers<?php if ($onlineCustomers): ?><span class="badge bg-success ms-auto"><?= $onlineCustomers ?> online</span><?php endif; ?></a>
-                <a class="nav-link text-white-50 <?= $action === 'reports' ? 'text-white fw-600' : '' ?>" href="index.php?action=reports"><i class="fas fa-chart-bar me-2"></i>Reports</a>
-                <a class="nav-link text-white-50 <?= $action === 'notifications' ? 'text-white fw-600' : '' ?>" href="index.php?action=notifications"><i class="fas fa-bell me-2"></i>Notifications<?php if ($unreadNotifs): ?><span class="badge bg-danger ms-auto"><?= $unreadNotifs ?></span><?php endif; ?></a>
-                <a class="nav-link text-white-50 <?= $action === 'broadcast' ? 'text-white fw-600' : '' ?>" href="index.php?action=broadcast"><i class="fas fa-bullhorn me-2"></i>Broadcast</a>
-                <a class="nav-link text-white-50 <?= $action === 'settings' ? 'text-white fw-600' : '' ?>" href="index.php?action=settings"><i class="fas fa-cog me-2"></i>Settings</a>
+                <a class="nav-link text-white-50 <?= $action === 'dashboard' ? 'text-white fw-600' : '' ?>" href="index.php"><i class="fas fa-tachometer-alt me-2"></i><?= __t('dashboard') ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'products' ? 'text-white fw-600' : '' ?>" href="index.php?action=products"><i class="fas fa-box me-2"></i><?= __t('products') ?><?php if ($draftProducts): ?><span class="badge bg-warning text-dark ms-auto"><?= $draftProducts ?></span><?php endif; ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'categories' ? 'text-white fw-600' : '' ?>" href="index.php?action=categories"><i class="fas fa-tags me-2"></i><?= __t('categories') ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'orders' ? 'text-white fw-600' : '' ?>" href="index.php?action=orders"><i class="fas fa-shopping-cart me-2"></i><?= __t('orders') ?><?php if ($pendingOrders): ?><span class="badge bg-warning text-dark ms-auto"><?= $pendingOrders ?></span><?php endif; ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'coupons' ? 'text-white fw-600' : '' ?>" href="index.php?action=coupons"><i class="fas fa-percent me-2"></i><?= __t('coupons') ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'reviews' ? 'text-white fw-600' : '' ?>" href="index.php?action=reviews"><i class="fas fa-star me-2"></i><?= __t('reviews') ?><?php if ($pendingReviews): ?><span class="badge bg-warning text-dark ms-auto"><?= $pendingReviews ?></span><?php endif; ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'contacts' ? 'text-white fw-600' : '' ?>" href="index.php?action=contacts"><i class="fas fa-envelope me-2"></i><?= __t('messages') ?><?php if ($unreadMessages): ?><span class="badge bg-danger ms-auto"><?= $unreadMessages ?></span><?php endif; ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'customers' ? 'text-white fw-600' : '' ?>" href="index.php?action=customers"><i class="fas fa-users me-2"></i><?= __t('customers') ?><?php if ($onlineCustomers): ?><span class="badge bg-success ms-auto"><?= $onlineCustomers ?> <?= __t('online') ?></span><?php endif; ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'reports' ? 'text-white fw-600' : '' ?>" href="index.php?action=reports"><i class="fas fa-chart-bar me-2"></i><?= __t('reports') ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'notifications' ? 'text-white fw-600' : '' ?>" href="index.php?action=notifications"><i class="fas fa-bell me-2"></i><?= __t('notifications') ?><?php if ($unreadNotifs): ?><span class="badge bg-danger ms-auto"><?= $unreadNotifs ?></span><?php endif; ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'broadcast' ? 'text-white fw-600' : '' ?>" href="index.php?action=broadcast"><i class="fas fa-bullhorn me-2"></i><?= __t('broadcast') ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'settings' ? 'text-white fw-600' : '' ?>" href="index.php?action=settings"><i class="fas fa-cog me-2"></i><?= __t('settings') ?></a>
                 <hr class="border-secondary my-2">
-                <a class="nav-link text-white-50 <?= $action === 'profile' ? 'text-white fw-600' : '' ?>" href="index.php?action=profile"><i class="fas fa-user me-2"></i>My Profile</a>
+                <a class="nav-link text-white-50 <?= $action === 'profile' ? 'text-white fw-600' : '' ?>" href="index.php?action=profile"><i class="fas fa-user me-2"></i><?= __t('profile') ?></a>
             </nav>
         </div>
         <div class="col-md-10 p-4 admin-content">
