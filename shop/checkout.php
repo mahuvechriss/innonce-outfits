@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/azampay.php';
+require_once __DIR__ . '/../includes/beem.php';
 requireLogin();
 $pageTitle = 'Checkout';
 
@@ -72,17 +73,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $db->commit();
 
-        // Initiate AzamPay payment
-        $azamResult = azampayInitiatePayment($total, $phone, $ref, $paymentMethod);
+        // Initiate payment
+        if ($paymentMethod === 'beem') {
+            $txnId = bin2hex(random_bytes(16));
+            $txnId = substr($txnId, 0, 8) . '-' . substr($txnId, 8, 4) . '-4' . substr($txnId, 12, 3) . '-' . dechex(hexdec(substr($txnId, 15, 4)) & 0x3fff | 0x8000) . '-' . substr($txnId, 19, 12);
+            $beemResult = beemInitiatePayment($total, $phone, $ref, $txnId);
 
-        if ($azamResult['success']) {
-            $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
-                ->execute([$azamResult['transaction_id'], json_encode($azamResult['raw']), $ref]);
-            $_SESSION['success'] = 'Order placed! Check your phone to complete payment.';
+            if ($beemResult['success']) {
+                $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
+                    ->execute([$beemResult['transaction_id'], json_encode($beemResult['raw']), $ref]);
+                $_SESSION['beem_checkout_url'] = $beemResult['checkout_url'];
+                $_SESSION['beem_order_number'] = $orderNumber;
+                header("Location: " . SITE_URL . "/payment/beem_redirect.php");
+                exit;
+            } else {
+                $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
+                    ->execute([json_encode($beemResult['raw']), $ref]);
+                $_SESSION['info'] = 'Order placed but payment could not be initiated. You can retry payment from your orders.';
+            }
         } else {
-            $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
-                ->execute([json_encode($azamResult['raw']), $ref]);
-            $_SESSION['info'] = 'Order placed but payment could not be initiated. You can retry payment from your orders.';
+            $azamResult = azampayInitiatePayment($total, $phone, $ref, $paymentMethod);
+
+            if ($azamResult['success']) {
+                $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
+                    ->execute([$azamResult['transaction_id'], json_encode($azamResult['raw']), $ref]);
+                $_SESSION['success'] = 'Order placed! Check your phone to complete payment.';
+            } else {
+                $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
+                    ->execute([json_encode($azamResult['raw']), $ref]);
+                $_SESSION['info'] = 'Order placed but payment could not be initiated. You can retry payment from your orders.';
+            }
         }
 
         header("Location: " . SITE_URL . "/account/orders.php?order=$orderNumber");
@@ -194,6 +214,18 @@ require_once __DIR__ . '/../includes/header.php';
                             </label>
                         </div>
                         <?php endforeach; ?>
+                        <div class="col-md-6">
+                            <label class="payment-option">
+                                <input class="form-check-input" type="radio" name="payment_method" value="beem">
+                                <div class="d-flex align-items-center">
+                                    <div class="payment-icon" style="background:#6C2BD915;color:#6C2BD9;"><i class="fas fa-credit-card"></i></div>
+                                    <div>
+                                        <strong>Beem (All Networks)</strong>
+                                        <br><small class="text-muted">Pay via M-Pesa, Airtel, Tigo, HaloPesa</small>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>

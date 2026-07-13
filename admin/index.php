@@ -775,7 +775,7 @@ switch ($action) {
                     <div class="col-md-2"><label class="form-label small">Tax Rate (%)</label><input type="number" name="tax_rate" class="form-control" value="<?= $settingsMap['tax_rate'] ?? TAX_RATE ?>"></div>
                     <div class="col-md-2"><label class="form-label small">Shipping Fee</label><input type="number" name="shipping_fee" class="form-control" value="<?= $settingsMap['shipping_fee'] ?? SHIPPING_FEE ?>"></div>
                     <div class="col-md-4"><label class="form-label small">Free Shipping Min</label><input type="number" name="free_shipping_min" class="form-control" value="<?= $settingsMap['free_shipping_min'] ?? FREE_SHIPPING_MIN ?>"></div>
-                    <div class="col-md-4"><label class="form-label small">Default Payment</label><select name="default_payment" class="form-select"><?php foreach (['mpesa'=>'M-Pesa','airtel_money'=>'Airtel Money','tigo_pesa'=>'Tigo Pesa','halopesa'=>'HaloPesa'] as $k=>$v): ?><option value="<?= $k ?>" <?= ($settingsMap['default_payment'] ?? 'mpesa') === $k ? 'selected' : '' ?>><?= $v ?></option><?php endforeach; ?></select></div>
+                    <div class="col-md-4"><label class="form-label small">Default Payment</label><select name="default_payment" class="form-select"><?php foreach (['mpesa'=>'M-Pesa','airtel_money'=>'Airtel Money','tigo_pesa'=>'Tigo Pesa','halopesa'=>'HaloPesa'] as $k=>$v): ?><option value="<?= $k ?>" <?= ($settingsMap['default_payment'] ?? 'mpesa') === $k ? 'selected' : '' ?>><?= $v ?></option><?php endforeach; ?><option value="beem" <?= ($settingsMap['default_payment'] ?? 'mpesa') === 'beem' ? 'selected' : '' ?>>Beem (All Networks)</option></select></div>
                 </div>
             </div>
 
@@ -828,6 +828,26 @@ switch ($action) {
                     <div class="col-md-4"><label class="form-label small">API Key</label><input type="text" name="beem_api_key" class="form-control" value="<?= escape($settingsMap['beem_api_key'] ?? '') ?>" <?= $locked ? 'disabled' : '' ?>></div>
                     <div class="col-md-4"><label class="form-label small">Secret Key</label><input type="password" name="beem_secret_key" class="form-control" value="<?= escape($settingsMap['beem_secret_key'] ?? '') ?>" <?= $locked ? 'disabled' : '' ?>></div>
                     <div class="col-md-4"><label class="form-label small">Sender ID</label><input type="text" name="beem_sender_id" class="form-control" value="<?= escape($settingsMap['beem_sender_id'] ?? 'INNOCE') ?>" <?= $locked ? 'disabled' : '' ?>></div>
+                </div>
+            </div>
+
+            <div class="border p-4 mb-3 position-relative <?= $locked ? 'opacity-50' : '' ?>" id="beemPaymentSection">
+                <?php if ($locked): ?>
+                <div class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="z-index:2;background:rgba(255,255,255,0.5);">
+                    <span class="badge bg-secondary"><i class="fas fa-lock me-1"></i>Locked — verify password above</span>
+                </div>
+                <?php endif; ?>
+                <h6 class="fw-600 mb-3"><i class="fas fa-credit-card me-2"></i>Beem Payments</h6>
+                <p class="small text-muted mb-3">Mobile money payments via Beem Payment Checkout (M-Pesa, Airtel, Tigo, HaloPesa)</p>
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label small">Payment API Key</label><input type="text" name="beem_payment_api_key" class="form-control" value="<?= escape($settingsMap['beem_payment_api_key'] ?? '') ?>" <?= $locked ? 'disabled' : '' ?>></div>
+                    <div class="col-md-4"><label class="form-label small">Payment Secret Key</label><input type="password" name="beem_payment_secret_key" class="form-control" value="<?= escape($settingsMap['beem_payment_secret_key'] ?? '') ?>" <?= $locked ? 'disabled' : '' ?>></div>
+                    <div class="col-md-4"><label class="form-label small">Reference Prefix</label><input type="text" name="beem_reference_prefix" class="form-control" value="<?= escape($settingsMap['beem_reference_prefix'] ?? 'INNOCE') ?>" <?= $locked ? 'disabled' : '' ?>></div>
+                    <div class="col-md-6"><label class="form-label small">Environment</label><select name="beem_payment_environment" class="form-select" <?= $locked ? 'disabled' : '' ?>>
+                        <option value="sandbox" <?= ($settingsMap['beem_payment_environment'] ?? 'sandbox') === 'sandbox' ? 'selected' : '' ?>>Sandbox</option>
+                        <option value="production" <?= ($settingsMap['beem_payment_environment'] ?? '') === 'production' ? 'selected' : '' ?>>Production</option>
+                    </select></div>
+                    <div class="col-md-6"><label class="form-label small">Callback URL</label><input type="text" class="form-control" value="<?= SITE_URL ?>/payment/callback.php" disabled></div>
                 </div>
             </div>
 

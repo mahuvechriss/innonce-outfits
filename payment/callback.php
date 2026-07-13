@@ -3,8 +3,18 @@ require_once __DIR__ . '/../config.php';
 
 $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
 
-// Try to find reference from: GET param, GET externalId, or body externalId
+// Try to find reference from: GET param, GET externalId, GET reference_number, or body fields
 $reference = $_GET['reference'] ?? $_GET['externalId'] ?? $input['externalId'] ?? '';
+
+// Beem callback: reference_number comes back as "PREFIX-REF"
+if (empty($reference) && !empty($input['reference_number'])) {
+    $parts = explode('-', $input['reference_number'], 2);
+    $reference = $parts[1] ?? $input['reference_number'];
+}
+if (empty($reference) && !empty($_GET['reference_number'])) {
+    $parts = explode('-', $_GET['reference_number'], 2);
+    $reference = $parts[1] ?? $_GET['reference_number'];
+}
 
 if ($reference && $input) {
     $stmt = $db->prepare("SELECT * FROM payment_transactions WHERE reference = ?");
@@ -13,7 +23,7 @@ if ($reference && $input) {
 
     if ($transaction) {
         // AzamPay sends: status, transactionId, externalId, amount, message
-        // Map AzamPay field names
+        // Beem sends: status, transaction_id, reference_number, amount
         $status = $input['status'] ?? 'failed';
         $transactionId = $input['transactionId'] ?? $input['transaction_id'] ?? null;
 
