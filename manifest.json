@@ -1,0 +1,28 @@
+{
+  "name": "INNOCE OUTFITS",
+  "short_name": "INNOCE",
+  "description": "Premium fashion that defines your style. Shop the latest collection from INNOCE OUTFITS.",
+  "start_url": "/innonce-outfits/index.php",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#FF8C00",
+  "orientation": "portrait-primary",
+  "scope": "/innonce-outfits/",
+  "icons": [
+    {
+      "src": "/innonce-outfits/assets/images/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/innonce-outfits/assets/images/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["shopping", "fashion", "lifestyle"],
+  "lang": "en",
+  "dir": "ltr"
+}
