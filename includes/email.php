@@ -73,12 +73,7 @@ function buildBroadcastEmailBody(string $title, string $message, ?string $produc
     $siteName = getSetting('site_name', 'INNOCE OUTFITS');
     $siteUrl = SITE_URL;
 
-    $logoPath = __DIR__ . '/../assets/images/logo.png';
     $logoSrc = $siteUrl . '/assets/images/logo.png';
-    if (file_exists($logoPath)) {
-        $logoData = base64_encode(file_get_contents($logoPath));
-        $logoSrc = 'data:image/png;base64,' . $logoData;
-    }
 
     $buttonsHtml = <<<HTML
         <div style="text-align:center;margin:30px 0 20px;">
