@@ -3,7 +3,7 @@
 function sendSms(string $phone, string $message): bool {
     $apiKey = getSetting('beem_api_key', '');
     $secretKey = getSetting('beem_secret_key', '');
-    $senderId = trim(preg_replace('/[^a-zA-Z0-9]/', '', getSetting('beem_sender_id', 'INNOCE')));
+    $senderId = trim(preg_replace('/[^a-zA-Z0-9]/', '', getSetting('beem_sender_id', 'CHILDAFYA')));
     $senderId = substr($senderId, 0, 11);
 
     if (empty($apiKey) || empty($secretKey)) {
