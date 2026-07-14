@@ -1,9 +1,13 @@
 <?php
 
+function beemApiKey(): string { $v = getSetting('beem_api_key', ''); return $v ?: env('BEEM_API_KEY', ''); }
+function beemSecretKey(): string { $v = getSetting('beem_secret_key', ''); return $v ?: env('BEEM_SECRET_KEY', ''); }
+function beemSenderId(): string { $v = getSetting('beem_sender_id', ''); return $v ?: env('BEEM_SENDER_ID', 'CHILDAFYA'); }
+
 function sendSms(string $phone, string $message): bool {
-    $apiKey = getSetting('beem_api_key', '');
-    $secretKey = getSetting('beem_secret_key', '');
-    $senderId = trim(preg_replace('/[^a-zA-Z0-9]/', '', getSetting('beem_sender_id', 'CHILDAFYA')));
+    $apiKey = beemApiKey();
+    $secretKey = beemSecretKey();
+    $senderId = trim(preg_replace('/[^a-zA-Z0-9]/', '', beemSenderId()));
     $senderId = substr($senderId, 0, 11);
 
     if (empty($apiKey) || empty($secretKey)) {
