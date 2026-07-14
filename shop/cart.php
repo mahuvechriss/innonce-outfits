@@ -76,6 +76,9 @@ if (isLoggedIn()) {
     }
 }
 
+$totalQty = isLoggedIn() ? getTotalCartQuantity($_SESSION['user_id']) : 0;
+$volumeDiscountPct = calculateVolumeDiscount($totalQty);
+$volumeDiscount = $subtotal * $volumeDiscountPct / 100;
 $discount = $_SESSION['coupon']['discount'] ?? 0;
 $deliveryMethod = $_SESSION['delivery_method'] ?? 'delivery';
 $shippingThreshold = (float)getSetting('shipping_threshold', SHIPPING_THRESHOLD);
@@ -87,7 +90,7 @@ $freeShippingMin = (float)getSetting('free_shipping_min', FREE_SHIPPING_MIN);
 if ($subtotal >= $freeShippingMin) $shipping = 0;
 $taxRate = (float)(getSetting('tax_rate', TAX_RATE));
 $tax = $subtotal * $taxRate / 100;
-$total = $subtotal + $tax + $shipping - $discount;
+$total = $subtotal + $tax + $shipping - $volumeDiscount - $discount;
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
@@ -122,7 +125,7 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="cart-item">
                 <img src="<?= $item['primary_image'] ? SITE_URL . '/' . $item['primary_image'] : 'https://placehold.co/100x130/121212/FF8C00?text=INNOCE' ?>" class="cart-item-img">
                 <div class="flex-grow-1">
-                    <h6 class="mb-1"><a href="index.php?product=<?= escape($item['slug']) ?>" class="text-dark text-decoration-none"><?= escape($item['name_en']) ?></a></h6>
+                    <h6 class="mb-1"><a href="index.php?product=<?= escape($item['slug']) ?>" class="text-dark text-decoration-none"><?= escape(t($item['name_en'], $item['name_sw'])) ?></a></h6>
                     <?php if ($item['size']): ?><span class="cart-item-meta"><i class="fas fa-ruler me-1"></i><?= escape($item['size']) ?></span><?php endif; ?>
                     <?php if ($item['color']): ?><span class="cart-item-meta ms-2"><i class="fas fa-palette me-1"></i><?= escape($item['color']) ?></span><?php endif; ?>
                     <div class="d-flex align-items-center gap-3 mt-2">
@@ -179,6 +182,18 @@ require_once __DIR__ . '/../includes/header.php';
                 </form>
                 <div class="d-flex justify-content-between mb-2"><span class="text-muted small"><?= __('shipping') ?></span><span class="small"><?= $shipping ? formatMoney($shipping) : '<span class="text-success"><i class="fas fa-check-circle me-1"></i>' . __('free') . '</span>' ?></span></div>
                 <div class="d-flex justify-content-between mb-2"><span class="text-muted small"><?= __('tax') ?> (<?= $taxRate ?>%)</span><span class="small"><?= formatMoney($tax) ?></span></div>
+                <?php if ($volumeDiscount > 0): ?>
+                <div class="d-flex justify-content-between mb-2"><span class="text-muted small"><?= __('volume_discount') ?> (<?= $volumeDiscountPct ?>%)</span><span class="text-success small">-<?= formatMoney($volumeDiscount) ?></span></div>
+                <?php else: ?>
+                <?php
+                $nextTier = null;
+                $tiers = json_decode(getSetting('volume_discount_tiers', VOLUME_DISCOUNT_TIERS), true) ?: json_decode(VOLUME_DISCOUNT_TIERS, true);
+                foreach ($tiers as $t) { if ($totalQty < $t[0]) { $nextTier = $t; break; } }
+                ?>
+                <?php if ($nextTier): ?>
+                <div class="d-flex justify-content-between mb-2"><span class="text-muted small"><i class="fas fa-info-circle me-1"></i><?= __('volume_discount') ?></span><span class="small text-gold">+<?= $nextTier[0] - $totalQty ?> more → <?= $nextTier[2] ?>% off</span></div>
+                <?php endif; ?>
+                <?php endif; ?>
                 <?php if ($discount > 0): ?>
                 <div class="d-flex justify-content-between mb-2"><span class="text-muted small"><?= __('discount') ?></span><span class="text-danger small">-<?= formatMoney($discount) ?></span></div>
                 <?php endif; ?>

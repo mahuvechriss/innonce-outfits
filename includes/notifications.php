@@ -132,7 +132,28 @@ function deleteBroadcastGroup(string $notifIds): void {
     $db->prepare("DELETE FROM notifications WHERE id IN ($placeholders)")->execute($ids);
 }
 
-function sendBroadcastNotification(string $title, string $message, string $recipientType = 'all', array $channels = ['inapp'], ?string $productLink = null): int {
+function getNewArrivalProducts(int $limit = 4): array {
+    global $db;
+    $stmt = $db->query("SELECT p.id, p.name_en, p.slug, p.price, p.discount_price,
+        (SELECT image_path FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as image
+        FROM products p WHERE p.status = 'active' AND p.new_arrival = 1
+        ORDER BY p.created_at DESC LIMIT $limit");
+    $products = $stmt->fetchAll();
+    $result = [];
+    foreach ($products as $p) {
+        $img = $p['image'] ? SITE_URL . '/' . $p['image'] : 'https://placehold.co/200x250/121212/D4A017?text=INNOCE';
+        $price = $p['discount_price'] ?: $p['price'];
+        $result[] = [
+            'name' => $p['name_en'],
+            'url' => SITE_URL . '/shop/index.php?product=' . $p['slug'],
+            'image' => $img,
+            'price' => number_format((float)$price),
+        ];
+    }
+    return $result;
+}
+
+function sendBroadcastNotification(string $title, string $message, string $recipientType = 'all', array $channels = ['inapp'], ?string $productLink = null): array {
     global $db;
 
     if ($recipientType === 'customers') {
@@ -146,32 +167,60 @@ function sendBroadcastNotification(string $title, string $message, string $recip
     }
 
     $users = $stmt->fetchAll();
-    $sent = 0;
+    $totalUsers = count($users);
 
     $fullMessage = $message;
     if ($productLink) {
         $fullMessage .= "\n\nView: $productLink";
     }
 
+    $inappEnabled = in_array('inapp', $channels);
+    $emailEnabled = in_array('email', $channels);
+    $smsEnabled = in_array('sms', $channels);
+
+    $stats = [
+        'total_users' => $totalUsers,
+        'inapp_sent' => 0,
+        'email_eligible' => 0,
+        'email_sent' => 0,
+        'email_failed' => 0,
+        'sms_eligible' => 0,
+        'sms_sent' => 0,
+        'sms_failed' => 0,
+    ];
+
+    $newProducts = getNewArrivalProducts();
+
     foreach ($users as $user) {
         $prefEmail = $user['notify_email'] ?? 1;
         $prefSms   = $user['notify_sms'] ?? 0;
         $prefInapp = $user['notify_inapp'] ?? 1;
 
-        if (in_array('inapp', $channels) && $prefInapp) {
+        if ($inappEnabled && $prefInapp) {
             $stmt2 = $db->prepare("INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'broadcast')");
             $stmt2->execute([$user['id'], $title, $fullMessage]);
-            $sent++;
+            $stats['inapp_sent']++;
         }
 
-        if (in_array('email', $channels) && $prefEmail && !empty($user['email'])) {
-            sendEmail($user['email'], $title, nl2br($fullMessage));
+        if ($emailEnabled && $prefEmail && !empty($user['email'])) {
+            $stats['email_eligible']++;
+            $emailBody = buildBroadcastEmailBody($title, $message, $productLink, $newProducts);
+            if (sendEmail($user['email'], $title, $emailBody)) {
+                $stats['email_sent']++;
+            } else {
+                $stats['email_failed']++;
+            }
         }
 
-        if (in_array('sms', $channels) && $prefSms && !empty($user['phone'])) {
-            sendSms($user['phone'], "$title - $fullMessage");
+        if ($smsEnabled && $prefSms && !empty($user['phone'])) {
+            $stats['sms_eligible']++;
+            if (sendSms($user['phone'], "$title - $fullMessage")) {
+                $stats['sms_sent']++;
+            } else {
+                $stats['sms_failed']++;
+            }
         }
     }
 
-    return $sent;
+    return $stats;
 }

@@ -35,7 +35,7 @@ require_once __DIR__ . '/../includes/header.php'; ?>
             <div class="product-card">
                 <div class="product-image-wrapper">
                     <a href="index.php?product=<?= escape($p['slug']) ?>">
-                        <img src="<?= $img ?>" alt="<?= escape($p['name_en']) ?>" class="product-image" loading="lazy">
+                        <img src="<?= $img ?>" alt="<?= escape(t($p['name_en'], $p['name_sw'])) ?>" class="product-image" loading="lazy">
                     </a>
                     <span class="product-badge bg-gold"><?= __('new') ?></span>
                     <?php if ($p['discount_price']): ?>
@@ -43,7 +43,7 @@ require_once __DIR__ . '/../includes/header.php'; ?>
                     <?php endif; ?>
                 </div>
                 <div class="product-info p-2">
-                    <h6 class="product-title small fw-600 mb-1"><a href="index.php?product=<?= escape($p['slug']) ?>" class="text-decoration-none text-dark"><?= escape($p['name_en']) ?></a></h6>
+                    <h6 class="product-title small fw-600 mb-1"><a href="index.php?product=<?= escape($p['slug']) ?>" class="text-decoration-none text-dark"><?= escape(t($p['name_en'], $p['name_sw'])) ?></a></h6>
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="fw-700 text-gold"><?= formatMoney($price) ?></span>
                         <a href="index.php?product=<?= escape($p['slug']) ?>" class="btn btn-sm btn-outline-dark-custom"><i class="fas fa-eye"></i></a>

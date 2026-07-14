@@ -1,4 +1,5 @@
 <?php
+ob_start();
 require_once __DIR__ . '/../config.php';
 requireAdmin();
 $pageTitle = 'Admin Dashboard';
@@ -8,8 +9,11 @@ $id = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
 
 // Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!verifyCsrf($_POST['csrf_token'] ?? '')) { redirect('index.php', 'Invalid token.', 'error'); }
     $actionPost = $_POST['admin_action'] ?? '';
+    if ($actionPost !== 'product_multi_save' && !verifyCsrf($_POST['csrf_token'] ?? '')) {
+        redirect('index.php', 'Invalid token.', 'error');
+    }
+
 
     // Products
     if ($actionPost === 'product_save') {
@@ -17,6 +21,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nameEn = trim($_POST['name_en'] ?? '');
         $nameSw = trim($_POST['name_sw'] ?? '');
         $slug = slugify($nameEn);
+        if (!$editId) {
+            $baseSlug = $slug;
+            $slugCounter = 1;
+            $checkSlug = $db->prepare("SELECT id FROM products WHERE slug = ? AND deleted_at IS NULL");
+            $checkSlug->execute([$slug]);
+            while ($checkSlug->fetchColumn()) {
+                $slug = $baseSlug . '-' . $slugCounter++;
+                $checkSlug->execute([$slug]);
+            }
+        }
         $price = (float)($_POST['price'] ?? 0);
         $discountPrice = !empty($_POST['discount_price']) ? (float)$_POST['discount_price'] : null;
         $quantity = (int)($_POST['quantity'] ?? 0);
@@ -39,11 +53,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($_FILES['image']['name'])) {
                 $path = uploadFile($_FILES['image']);
                 if ($path) {
+                    $hash = md5_file($_FILES['image']['tmp_name']);
                     $db->prepare("UPDATE product_images SET is_primary = 0 WHERE product_id = ?")->execute([$editId]);
                     $stmt = $db->prepare("SELECT id FROM product_images WHERE product_id = ? AND is_primary = 1");
                     $stmt->execute([$editId]);
                     if (!$stmt->fetch()) {
-                        $db->prepare("INSERT INTO product_images (product_id, image_path, is_primary) VALUES (?, ?, 1)")->execute([$editId, $path]);
+                        $db->prepare("INSERT INTO product_images (product_id, image_path, image_hash, is_primary) VALUES (?, ?, ?, 1)")->execute([$editId, $path, $hash]);
                     }
                 }
             }
@@ -58,7 +73,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pid = $db->lastInsertId();
             if (!empty($_FILES['image']['name'])) {
                 $path = uploadFile($_FILES['image']);
-                if ($path) $db->prepare("INSERT INTO product_images (product_id, image_path, is_primary) VALUES (?, ?, 1)")->execute([$pid, $path]);
+                if ($path) {
+                    $hash = md5_file($_FILES['image']['tmp_name']);
+                    $db->prepare("INSERT INTO product_images (product_id, image_path, image_hash, is_primary) VALUES (?, ?, ?, 1)")->execute([$pid, $path, $hash]);
+                }
             }
             if ($newArrival) {
                 redirect('index.php?action=broadcast&product_id=' . $pid, 'Product created! Send a new arrival notification to customers.');
@@ -92,10 +110,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         redirect('index.php?action=products', 'Bulk update saved.');
     } elseif ($actionPost === 'product_multi_save') {
+        ob_clean();
+        header('Content-Type: application/json');
+        if (!isAdmin()) {
+            echo json_encode(['ok' => false, 'message' => 'Session expired. Please refresh the page and login again.']);
+            exit;
+        }
+        if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
+            echo json_encode(['ok' => false, 'message' => 'Invalid session token. Please refresh the page and try again.']);
+            exit;
+        }
+        try {
         $items = json_decode($_POST['products_json'] ?? '[]', true);
-        $created = 0;
+        $force = !empty($_POST['force']);
+        $total = 0; $dupCount = 0; $dupNames = [];
+
+        // First pass: detect duplicates
+        $tempFiles = [];
         foreach ($items as $i => $p) {
-            $imageData = null;
+            $nameEn = trim($p['name'] ?? '');
+            if (!$nameEn) continue;
+            $total++;
+            $fileKey = 'product_image_' . $i;
+            if (isset($_FILES[$fileKey]) && $_FILES[$fileKey]['tmp_name']) {
+                $hash = md5_file($_FILES[$fileKey]['tmp_name']);
+                $tempFiles[$i] = $hash;
+                if (!$force) {
+                    $dupStmt = $db->prepare("SELECT COUNT(*) FROM product_images pi JOIN products p2 ON pi.product_id = p2.id WHERE pi.image_hash = ? AND p2.deleted_at IS NULL");
+                    $dupStmt->execute([$hash]);
+                    if ($dupStmt->fetchColumn() > 0) {
+                        $dupCount++;
+                        $dupNames[] = $nameEn;
+                    }
+                }
+            }
+        }
+
+        if (!$force && $dupCount > 0) {
+            echo json_encode([
+                'ok' => false,
+                'duplicates' => $dupCount,
+                'total' => $total,
+                'message' => "$dupCount duplicate image(s) found among $total product(s): " . implode(', ', array_slice($dupNames, 0, 5)) . (count($dupNames) > 5 ? '...' : '') . '. Save anyway?',
+                'ask_confirm' => true,
+            ]);
+            exit;
+        }
+
+        // Second pass: save
+        $created = 0; $duplicates = 0;
+        foreach ($items as $i => $p) {
+            $imageData = null; $imageHash = null; $isDuplicate = false;
             $fileKey = 'product_image_' . $i;
             if (isset($_FILES[$fileKey]) && $_FILES[$fileKey]['tmp_name']) {
                 $ext = strtolower(pathinfo($_FILES[$fileKey]['name'], PATHINFO_EXTENSION));
@@ -104,7 +169,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $targetDir = __DIR__ . '/../uploads/products/';
                     if (!is_dir($targetDir)) mkdir($targetDir, 0755, true);
                     $filename = uniqid() . '.' . $ext;
-                    if (move_uploaded_file($_FILES[$fileKey]['tmp_name'], $targetDir . $filename)) {
+                    $tmpPath = $_FILES[$fileKey]['tmp_name'];
+                    $imageHash = md5_file($tmpPath);
+                    $dupStmt = $db->prepare("SELECT pi.product_id FROM product_images pi JOIN products p2 ON pi.product_id = p2.id WHERE pi.image_hash = ? AND p2.deleted_at IS NULL LIMIT 1");
+                    $dupStmt->execute([$imageHash]);
+                    $isDuplicate = $dupStmt->fetch() ? true : false;
+                    if (move_uploaded_file($tmpPath, $targetDir . $filename)) {
                         $imageData = 'uploads/products/' . $filename;
                     }
                 }
@@ -112,7 +182,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $nameEn = trim($p['name'] ?? '');
             if (!$nameEn) continue;
             $slug = slugify($nameEn);
+            $baseSlug = $slug;
+            $slugCounter = 1;
+            $checkSlug = $db->prepare("SELECT id FROM products WHERE slug = ? AND deleted_at IS NULL");
+            $checkSlug->execute([$slug]);
+            while ($checkSlug->fetchColumn()) {
+                $slug = $baseSlug . '-' . $slugCounter++;
+                $checkSlug->execute([$slug]);
+            }
             $sku = strtoupper(substr($nameEn, 0, 3)) . '-' . time() . '-' . $i;
+            $status = $p['status'] ?? 'draft';
             $stmt = $db->prepare("INSERT INTO products (category_id, name_en, name_sw, slug, price, discount_price, quantity, brand, description_en, description_sw, featured, new_arrival, status, sizes, colors, sku) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 !empty($p['cat']) ? (int)$p['cat'] : null,
@@ -127,19 +206,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 trim($p['desc_sw'] ?? ''),
                 !empty($p['featured']) ? 1 : 0,
                 !empty($p['arrival']) ? 1 : 0,
-                $p['status'] ?? 'active',
+                $status,
                 !empty($p['sizes']) ? json_encode($p['sizes']) : null,
                 !empty($p['colors']) ? json_encode($p['colors']) : null,
                 $sku,
             ]);
             $pid = $db->lastInsertId();
-            if ($imageData) $db->prepare("INSERT INTO product_images (product_id, image_path, is_primary) VALUES (?, ?, 1)")->execute([$pid, $imageData]);
+            if ($imageData) $db->prepare("INSERT INTO product_images (product_id, image_path, image_hash, is_primary) VALUES (?, ?, ?, 1)")->execute([$pid, $imageData, $imageHash]);
             $created++;
+            if ($isDuplicate) $duplicates++;
         }
-        sendJson(['ok' => true, 'message' => "$created products created."]);
+        $msg = "$created products created.";
+        if ($duplicates) $msg .= " ($duplicates duplicate images flagged with Dup badge).";
+        echo json_encode(['ok' => true, 'message' => $msg]);
+        exit;
+        } catch (Exception $e) {
+            echo json_encode(['ok' => false, 'message' => $e->getMessage()]);
+            exit;
+        }
     } elseif ($actionPost === 'product_delete') {
         $db->prepare("DELETE FROM products WHERE id = ?")->execute([$id]);
         redirect('index.php?action=products', 'Product deleted.');
+    } elseif ($actionPost === 'product_multi_delete') {
+        $ids = array_filter(explode(',', $_POST['ids'] ?? ''), fn($v) => $v > 0);
+        if ($ids) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $db->prepare("DELETE FROM products WHERE id IN ($placeholders)")->execute(array_values($ids));
+        }
+        redirect('index.php?action=products', count($ids) . ' product(s) deleted.');
     }
     // Categories
     elseif ($actionPost === 'category_save') {
@@ -205,7 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Settings
     elseif ($actionPost === 'settings_save') {
         foreach ($_POST as $key => $value) {
-            if (in_array($key, ['csrf_token', 'admin_action'])) continue;
+            if (in_array($key, ['csrf_token', 'admin_action']) || preg_match('/^vd_(min|max|pct)_\d+$/', $key)) continue;
             $stmt = $db->prepare("SELECT id FROM settings WHERE `key` = ?");
             $stmt->execute([$key]);
             if ($stmt->fetch()) {
@@ -268,8 +362,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $channels = $_POST['channels'] ?? ['inapp'];
         $productLink = trim($_POST['product_link'] ?? '');
         if (!$title || !$message) { redirect('index.php?action=broadcast', 'Title and message are required.', 'error'); }
-        $sent = sendBroadcastNotification($title, $message, $recipientType, $channels, $productLink);
-        redirect('index.php?action=broadcast', "Broadcast sent! $sent in-app notifications delivered.");
+        $stats = sendBroadcastNotification($title, $message, $recipientType, $channels, $productLink);
+        $_SESSION['broadcast_result'] = $stats;
+        redirect('index.php?action=broadcast', 'Broadcast sent successfully.');
     }
 }
 
@@ -336,9 +431,19 @@ switch ($action) {
             box-shadow: 0 0 0 3px rgba(255,140,0,0.2) !important;
         }
         </style>
-        <?php $editProduct = null;
-        if ($id) { $stmt = $db->prepare("SELECT * FROM products WHERE id = ?"); $stmt->execute([$id]); $editProduct = $stmt->fetch(); }
-        $products = $db->query("SELECT p.*, c.name_en as cat_name FROM products p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.created_at DESC")->fetchAll();
+        <?php $editProduct = null; $editImage = '';
+        if ($id) {
+            $stmt = $db->prepare("SELECT * FROM products WHERE id = ?"); $stmt->execute([$id]); $editProduct = $stmt->fetch();
+            if ($editProduct) {
+                $imgStmt = $db->prepare("SELECT image_path FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, id ASC LIMIT 1");
+                $imgStmt->execute([$id]);
+                $editImage = $imgStmt->fetchColumn();
+            }
+        }
+        $sort = $_GET['sort'] ?? 'newest';
+        $orderMap = ['newest' => 'p.created_at DESC', 'oldest' => 'p.created_at ASC', 'az' => 'p.name_en ASC', 'za' => 'p.name_en DESC'];
+        $orderBy = $orderMap[$sort] ?? 'p.created_at DESC';
+        $products = $db->query("SELECT p.*, c.name_en as cat_name, pi.image_path as primary_image, pi.image_hash, (SELECT COUNT(*) FROM product_images pi2 JOIN products p2 ON pi2.product_id = p2.id WHERE pi2.image_hash = pi.image_hash AND pi2.image_hash IS NOT NULL AND p2.id != p.id AND p2.deleted_at IS NULL) as dup_count FROM products p LEFT JOIN categories c ON p.category_id = c.id LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1 ORDER BY $orderBy")->fetchAll();
         $cats = $db->query("SELECT * FROM categories WHERE status = 1 ORDER BY name_en")->fetchAll();
         $sizesList = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
         $colorPalette = json_encode(colorPalette());
@@ -351,10 +456,20 @@ switch ($action) {
         }
     ?>
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-            <h4 class="fw-600 mb-0"><?= __t('products') ?> (<?= count($products) ?>)</h4>
+            <div class="d-flex align-items-center gap-3">
+                <h4 class="fw-600 mb-0"><?= __t('products') ?> (<?= count($products) ?>)</h4>
+                <select class="form-select form-select-sm" style="width:auto;font-size:12px" onchange="window.location='index.php?action=products&sort='+this.value">
+                    <option value="newest" <?= $sort === 'newest' ? 'selected' : '' ?>>New → Old</option>
+                    <option value="oldest" <?= $sort === 'oldest' ? 'selected' : '' ?>>Old → New</option>
+                    <option value="az" <?= $sort === 'az' ? 'selected' : '' ?>>A → Z</option>
+                    <option value="za" <?= $sort === 'za' ? 'selected' : '' ?>>Z → A</option>
+                </select>
+            </div>
             <div class="d-flex gap-2">
                 <button class="btn-gold-sm" onclick="showMultiCreator()"><i class="fas fa-layer-group me-1"></i>+ <?= __t('add_products') ?></button>
                 <button class="btn btn-sm btn-outline-dark-custom" onclick="toggleBulkEditor()" id="bulkToggleBtn" style="display:none"><i class="fas fa-edit me-1"></i><?= __t('edit_product') ?> (<span id="bulkCount">0</span>)</button>
+                <button class="btn btn-sm btn-outline-info" onclick="broadcastSelected()" id="broadcastBtn" style="display:none"><i class="fas fa-bullhorn me-1"></i>Broadcast</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteSelected()" id="deleteBtn" style="display:none"><i class="fas fa-trash me-1"></i>Delete</button>
             </div>
         </div>
 
@@ -369,6 +484,10 @@ switch ($action) {
                 <p class="fw-600 mb-1" style="color:#3a2a00">Click or drop product images here</p>
                 <small style="color:#3a2a00">Select multiple images at once — each becomes a product entry</small>
                 <input type="file" id="multiFileInput" accept="image/*" multiple style="display:none" onchange="handleMultiFiles(this.files)">
+            </div>
+            <div id="aiFillAllBar" class="mb-3 p-2 text-center" style="display:none;background:#FFF3E0;border:1px solid #FF8C00;border-radius:8px">
+                <button class="btn btn-sm btn-outline-info" onclick="aiFillAllProducts()" id="aiFillAllBtn"><i class="fas fa-magic me-1"></i>Fill All with AI</button>
+                <span id="aiFillAllStatus" class="ms-2 small"></span>
             </div>
             <div id="multiProductList"></div>
             <div class="text-end mt-3" id="multiSaveArea" style="display:none">
@@ -434,7 +553,14 @@ switch ($action) {
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small">Image</label>
-                        <input type="file" name="image" class="form-control">
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="file" name="image" class="form-control">
+                            <?php if ($editImage): ?>
+                            <img src="<?= SITE_URL . '/' . $editImage ?>" style="width:50px;height:50px;object-fit:cover;border-radius:6px;border:2px solid #FF8C00;flex-shrink:0" alt="Current image">
+                            <?php else: ?>
+                            <span style="width:50px;height:50px;border-radius:6px;border:2px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999;flex-shrink:0;text-align:center">No<br>image</span>
+                            <?php endif; ?>
+                        </div>
                         <div class="form-check mt-2">
                             <input type="checkbox" name="featured" class="form-check-input" id="featured" <?= ($editProduct['featured'] ?? 0) ? 'checked' : '' ?>>
                             <label class="form-check-label small" for="featured"><?= __t('featured') ?></label>
@@ -487,17 +613,21 @@ switch ($action) {
         </div>
         <div class="table-responsive">
             <table class="table table-sm">
-                <thead><tr><th style="width:32px"></th><th>ID</th><th><?= __t('name') ?></th><th><?= __t('category') ?></th><th><?= __t('price') ?></th><th><?= __t('quantity') ?></th><th><?= __t('status') ?></th><th></th></tr></thead>
+                <thead><tr><th style="width:32px"></th><th style="width:55px">Photo</th><th>ID</th><th><?= __t('name') ?></th><th><?= __t('category') ?></th><th><?= __t('price') ?></th><th><?= __t('quantity') ?></th><th><?= __t('status') ?></th><th></th></tr></thead>
                 <tbody>
                 <?php foreach ($products as $p): ?>
                 <tr>
                     <td><input type="checkbox" class="product-checkbox" value="<?= $p['id'] ?>" data-name="<?= escape($p['name_en']) ?>" data-price="<?= $p['price'] ?>" data-discount="<?= $p['discount_price'] ?? '' ?>" data-qty="<?= $p['quantity'] ?>" data-brand="<?= escape($p['brand'] ?? '') ?>" data-status="<?= $p['status'] ?>" data-featured="<?= $p['featured'] ?>" data-arrival="<?= $p['new_arrival'] ?>" onchange="updateBulkBtn()"></td>
+                    <td><?php if ($p['primary_image']): ?><img src="<?= SITE_URL . '/' . $p['primary_image'] ?>" style="width:45px;height:45px;object-fit:cover;border-radius:4px;border:1px solid #ddd"><?php else: ?><span style="display:inline-block;width:45px;height:45px;border-radius:4px;background:#f0f0f0;border:1px dashed #ccc;vertical-align:middle"></span><?php endif; ?></td>
                     <td><?= $p['id'] ?></td>
                     <td><a href="<?= SITE_URL ?>/shop/index.php?product=<?= escape($p['slug']) ?>" target="_blank"><?= escape($p['name_en']) ?></a></td>
                     <td><small><?= escape($p['cat_name'] ?? '') ?></small></td>
                     <td><?= formatMoney($p['discount_price'] ?: $p['price']) ?></td>
                     <td><?= $p['quantity'] ?></td>
-                    <td><span class="badge bg-<?= $p['status'] === 'active' ? 'success' : 'secondary' ?>"><?= $p['status'] ?></span></td>
+                    <td>
+                        <span class="badge bg-<?= $p['status'] === 'active' ? 'success' : 'secondary' ?>"><?= $p['status'] ?></span>
+                        <?php if (($p['dup_count'] ?? 0) > 0): ?><span class="badge bg-danger ms-1" title="Duplicate image">Dup</span><?php endif; ?>
+                    </td>
                     <td>
                         <a href="index.php?action=products&id=<?= $p['id'] ?>" class="btn btn-sm btn-outline-dark-custom" title="Edit"><i class="fas fa-edit"></i></a>
                         <a href="index.php?action=broadcast&product_id=<?= $p['id'] ?>" class="btn btn-sm btn-outline-info" title="Notify Customers"><i class="fas fa-bullhorn"></i></a>
@@ -538,6 +668,7 @@ switch ($action) {
                 reader.readAsDataURL(file);
             }
             document.getElementById('multiSaveArea').style.display = 'block';
+            document.getElementById('aiFillAllBar').style.display = 'block';
         }
 
         function appendProductRow(container, idx) {
@@ -546,6 +677,7 @@ switch ($action) {
             p.rendered = true;
             var div = document.createElement('div');
             div.className = 'border rounded p-3 mb-3';
+            div.setAttribute('data-index', idx);
             div.style.cssText = 'border:2px solid #FF8C00;border-radius:12px;margin-bottom:1rem;background:#c8bfa8;';
             div.innerHTML = '<div class="row g-3 p-3">' +
                 '<div class="col-md-3"><img src="' + p.data + '" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;border:1px solid #e0d5c0"></div>' +
@@ -559,7 +691,7 @@ switch ($action) {
                 '<div class="col-6"><label class="small fw-600" style="color:#5a3e00">Description (EN)</label><textarea class="form-control form-control-sm mp-desc-en" rows="2" placeholder="Product description in English"></textarea></div>' +
                 '<div class="col-6"><label class="small fw-600" style="color:#5a3e00">Description (SW)</label><textarea class="form-control form-control-sm mp-desc-sw" rows="2" placeholder="Maelezo ya bidhaa kwa Kiswahili"></textarea></div>' +
                 '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Category</label><select class="form-select form-select-sm mp-cat"><option value="">None</option>' + CATS.map(function(c){return '<option value="'+c.id+'">'+c.name+'</option>';}).join('') + '</select></div>' +
-                '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Status</label><select class="form-select form-select-sm mp-status"><option value="active">Active</option><option value="inactive">Inactive</option><option value="draft">Draft</option></select></div>' +
+                '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Status</label><select class="form-select form-select-sm mp-status"><option value="draft" selected>Draft</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>' +
                 '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">&nbsp;</label><div class="d-flex gap-2 pt-1"><div class="form-check"><input type="checkbox" class="form-check-input mp-featured"><label class="form-check-label small fw-600" style="color:#5a3e00">Featured</label></div><div class="form-check"><input type="checkbox" class="form-check-input mp-arrival"><label class="form-check-label small fw-600" style="color:#5a3e00">New</label></div></div></div>' +
                 '<div class="col-md-6"><label class="small fw-600" style="color:#5a3e00">Sizes</label><div class="d-flex flex-wrap gap-1">' + ['XS','S','M','L','XL','XXL','3XL'].map(function(s){return '<label class="size-selector"><input type="checkbox" class="d-none mp-size" value="'+s+'"><span class="size-option" style="padding:2px 8px;font-size:11px;background:#fff;border:2px solid #e0e0e0">'+s+'</span></label>';}).join('') + '</div></div>' +
                 '<div class="col-md-6"><label class="small fw-600" style="color:#5a3e00">Colors <small>(type to search)</small></label><div class="d-flex flex-wrap gap-1 align-items-center"><div class="mp-colors-list d-flex flex-wrap gap-1"></div><div style="position:relative"><input type="text" class="form-control form-control-sm mp-color-input" style="width:160px" placeholder="Search color..." oninput="searchColors(this, ' + idx + ')" onblur="setTimeout(function(){var d=this.parentNode.querySelector(\'.mp-color-dropdown\');if(d)d.style.display=\'none\';}.bind(this),200)" onfocus="searchColors(this, ' + idx + ')"><div class="mp-color-dropdown" style="position:absolute;top:100%;left:0;right:0;z-index:10;background:#fff;border:1px solid #ddd;max-height:150px;overflow-y:auto;display:none"></div></div></div></div>' +
@@ -575,6 +707,7 @@ switch ($action) {
                 if (!p.data) return;
                 var div = document.createElement('div');
                 div.className = 'border rounded p-3 mb-3';
+                div.setAttribute('data-index', idx);
                 div.style.cssText = 'border:2px solid #FF8C00;border-radius:12px;margin-bottom:1rem;background:#c8bfa8;';
                 div.innerHTML = '<div class="row g-3 p-3">' +
                     '<div class="col-md-3"><img src="' + p.data + '" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;border:1px solid #e0d5c0"></div>' +
@@ -586,12 +719,12 @@ switch ($action) {
                     '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Qty</label><input type="number" class="form-control form-control-sm mp-qty" value="10"></div>' +
                     '<div class="col-3"><label class="small fw-600" style="color:#5a3e00">Brand</label><input type="text" class="form-control form-control-sm mp-brand" placeholder="INNOCE"></div>' +
                     '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Category</label><select class="form-select form-select-sm mp-cat"><option value="">None</option>' + CATS.map(function(c){return '<option value="'+c.id+'">'+c.name+'</option>';}).join('') + '</select></div>' +
-                    '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Status</label><select class="form-select form-select-sm mp-status"><option value="active">Active</option><option value="inactive">Inactive</option><option value="draft">Draft</option></select></div>' +
+                    '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">Status</label><select class="form-select form-select-sm mp-status"><option value="draft" selected>Draft</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>' +
                     '<div class="col-4"><label class="small fw-600" style="color:#5a3e00">&nbsp;</label><div class="d-flex gap-2 pt-1"><div class="form-check"><input type="checkbox" class="form-check-input mp-featured"><label class="form-check-label small fw-600" style="color:#5a3e00">Featured</label></div><div class="form-check"><input type="checkbox" class="form-check-input mp-arrival"><label class="form-check-label small fw-600" style="color:#5a3e00">New</label></div></div></div>' +
                     '<div class="col-12"><label class="small fw-600" style="color:#5a3e00">Sizes</label><div class="d-flex flex-wrap gap-1">' + ['XS','S','M','L','XL','XXL','3XL'].map(function(s){return '<label class="size-selector"><input type="checkbox" class="d-none mp-size" value="'+s+'"><span class="size-option" style="padding:2px 8px;font-size:11px;background:#fff;border:2px solid #e0e0e0">'+s+'</span></label>';}).join('') + '</div></div>' +
                     '<div class="col-12"><label class="small fw-600" style="color:#5a3e00">Colors <small>(type to search)</small></label><div class="d-flex flex-wrap gap-1 align-items-center"><div class="mp-colors-list d-flex flex-wrap gap-1"></div><div style="position:relative"><input type="text" class="form-control form-control-sm mp-color-input" style="width:160px" placeholder="Search color..." oninput="searchColors(this, ' + idx + ')" onblur="setTimeout(function(){var d=this.parentNode.querySelector(\'.mp-color-dropdown\');if(d)d.style.display=\'none\';}.bind(this),200)" onfocus="searchColors(this, ' + idx + ')"><div class="mp-color-dropdown" style="position:absolute;top:100%;left:0;right:0;z-index:10;background:#fff;border:1px solid #ddd;max-height:150px;overflow-y:auto;display:none"></div></div></div></div>' +
                     '</div></div>' +
-                    '<div class="row px-3 pb-3"><div class="col-12 text-end"><button class="btn btn-gold-sm btn-sm" onclick="saveSingleProduct(' + idx + ')"><i class="fas fa-save me-1"></i>Save</button></div></div></div>';
+                '<div class="row px-3 pb-3"><div class="col-12 text-end"><button class="btn btn-sm btn-outline-info me-2" onclick="aiFillMultiProduct(' + idx + ')" id="aiFillBtn_' + idx + '"><i class="fas fa-magic me-1"></i>Fill with AI</button><span id="aiFillStatus_' + idx + '" class="me-2 small"></span><button class="btn btn-gold-sm btn-sm" onclick="saveSingleProduct(' + idx + ')"><i class="fas fa-save me-1"></i>Save</button></div></div></div>';
                 container.appendChild(div);
             });
         }
@@ -618,7 +751,7 @@ switch ($action) {
         }
 
         function addColorToProduct(idx, color) {
-            var container = document.getElementById('multiProductList').children[idx];
+            var container = getProductContainer(idx);
             var list = container.querySelector('.mp-colors-list');
             if (list.querySelector('[data-color="' + color + '"]')) return;
             var badge = document.createElement('span');
@@ -642,7 +775,8 @@ switch ($action) {
             var container = document.getElementById('multiProductList');
             var rows = container.querySelectorAll('.row.g-3');
 
-            rows.forEach(function(row, idx) {
+            rows.forEach(function(row) {
+                var pIdx = parseInt(row.parentElement.getAttribute('data-index'));
                 var name = row.querySelector('.mp-name').value.trim();
                 if (!name) return;
                 var colors = [];
@@ -666,8 +800,8 @@ switch ($action) {
                     colors: colors,
                 };
                 products.push(p);
-                if (multiProducts[idx] && multiProducts[idx].file) {
-                    formData.append('product_image_' + idx, multiProducts[idx].file, multiProducts[idx].file.name);
+                if (multiProducts[pIdx] && multiProducts[pIdx].file) {
+                    formData.append('product_image_' + pIdx, multiProducts[pIdx].file, multiProducts[pIdx].file.name);
                 }
             });
 
@@ -678,25 +812,75 @@ switch ($action) {
             btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
 
             fetch('index.php', { method: 'POST', body: formData })
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    return r.text().then(function(text) {
+                        try { return JSON.parse(text); }
+                        catch(e) {
+                            throw new Error('Server returned non-JSON. Status: ' + r.status + '\nResponse: ' + text.substring(0, 300));
+                        }
+                    });
+                })
                 .then(function(data) {
                     if (data.ok) {
-                        window.location.href = 'index.php?action=products&msg=' + encodeURIComponent(data.message);
+                        document.getElementById('multiProductList').innerHTML = '';
+                        document.getElementById('multiSaveArea').style.display = 'none';
+                        document.getElementById('aiFillAllBar').style.display = 'none';
+                        multiProducts = [];
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-save me-2"></i>Save All Products';
+                    } else if (data.ask_confirm) {
+                        if (confirm(data.message)) {
+                            formData.append('force', '1');
+                            btn.disabled = true;
+                            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+                            fetch('index.php', { method: 'POST', body: formData })
+                                .then(function(r2) {
+                                    return r2.text().then(function(text) {
+                                        try { return JSON.parse(text); }
+                                        catch(e) { throw new Error('Server returned non-JSON. ' + text.substring(0, 300)); }
+                                    });
+                                })
+                                .then(function(data2) {
+                                    if (data2.ok) {
+                                        document.getElementById('multiProductList').innerHTML = '';
+                                        document.getElementById('multiSaveArea').style.display = 'none';
+                                        document.getElementById('aiFillAllBar').style.display = 'none';
+                                        multiProducts = [];
+                                    } else {
+                                        alert('Error: ' + (data2.message || 'Unknown error'));
+                                    }
+                                    btn.disabled = false;
+                                    btn.innerHTML = '<i class="fas fa-save me-2"></i>Save All Products';
+                                })
+                                .catch(function(err2) {
+                                    alert('Save failed:\n' + err2.message);
+                                    btn.disabled = false;
+                                    btn.innerHTML = '<i class="fas fa-save me-2"></i>Save All Products';
+                                });
+                        } else {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="fas fa-save me-2"></i>Save All Products';
+                        }
                     } else {
                         alert('Error: ' + (data.message || 'Unknown error'));
                         btn.disabled = false;
                         btn.innerHTML = '<i class="fas fa-save me-2"></i>Save All Products';
                     }
                 })
-                .catch(function() {
-                    alert('Connection error. Check console.');
+                .catch(function(err) {
+                    alert('Save failed:\n' + (err.message || 'Unknown error'));
+                    console.error(err);
                     btn.disabled = false;
                     btn.innerHTML = '<i class="fas fa-save me-2"></i>Save All Products';
                 });
         }
 
+        function getProductContainer(idx) {
+            return document.querySelector('#multiProductList [data-index="' + idx + '"]');
+        }
+
         function saveSingleProduct(idx) {
-            var container = document.getElementById('multiProductList').children[idx];
+            var container = getProductContainer(idx);
             var row = container.querySelector('.row.g-3');
             var name = row.querySelector('.mp-name').value.trim();
             if (!name) { alert('Name is required'); return; }
@@ -732,20 +916,58 @@ switch ($action) {
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             fetch('index.php', { method: 'POST', body: formData })
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    return r.text().then(function(text) {
+                        try { return JSON.parse(text); }
+                        catch(e) {
+                            throw new Error('Server returned non-JSON. Status: ' + r.status + '\nResponse: ' + text.substring(0, 300));
+                        }
+                    });
+                })
                 .then(function(data) {
                     if (data.ok) {
-                        container.style.borderColor = '#28a745';
-                        btn.innerHTML = '<i class="fas fa-check"></i>';
-                        setTimeout(function(){ btn.innerHTML = origHtml; btn.disabled = false; }, 2000);
+                        container.remove();
+                        multiProducts[idx] = null;
+                    } else if (data.ask_confirm) {
+                        if (confirm(data.message)) {
+                            formData.append('force', '1');
+                            btn.disabled = true;
+                            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                            fetch('index.php', { method: 'POST', body: formData })
+                                .then(function(r2) {
+                                    return r2.text().then(function(text) {
+                                        try { return JSON.parse(text); }
+                                        catch(e) { throw new Error('Server returned non-JSON. ' + text.substring(0, 300)); }
+                                    });
+                                })
+                                .then(function(data2) {
+                                    if (data2.ok) {
+                                        container.remove();
+                                        multiProducts[idx] = null;
+                                    } else {
+                                        alert('Error: ' + (data2.message || 'Unknown error'));
+                                    }
+                                    btn.disabled = false;
+                                    btn.innerHTML = origHtml;
+                                })
+                                .catch(function(err2) {
+                                    alert('Save failed:\n' + err2.message);
+                                    btn.disabled = false;
+                                    btn.innerHTML = origHtml;
+                                });
+                        } else {
+                            btn.disabled = false;
+                            btn.innerHTML = origHtml;
+                        }
                     } else {
                         alert('Error: ' + (data.message || 'Unknown error'));
                         btn.disabled = false;
                         btn.innerHTML = origHtml;
                     }
                 })
-                .catch(function() {
-                    alert('Connection error. Check console.');
+                .catch(function(err) {
+                    alert('Save failed:\n' + (err.message || 'Unknown error'));
+                    console.error(err);
                     btn.disabled = false;
                     btn.innerHTML = origHtml;
                 });
@@ -811,14 +1033,11 @@ switch ($action) {
         }
         function updateBulkBtn() {
             var checked = document.querySelectorAll('.product-checkbox:checked');
-            var btn = document.getElementById('bulkToggleBtn');
-            var count = document.getElementById('bulkCount');
-            if (checked.length > 0) {
-                btn.style.display = 'inline-block';
-                count.textContent = checked.length;
-            } else {
-                btn.style.display = 'none';
-            }
+            var count = checked.length;
+            document.getElementById('bulkToggleBtn').style.display = count > 0 ? 'inline-block' : 'none';
+            document.getElementById('broadcastBtn').style.display = count > 0 ? 'inline-block' : 'none';
+            document.getElementById('deleteBtn').style.display = count > 0 ? 'inline-block' : 'none';
+            document.getElementById('bulkCount').textContent = count;
         }
         function toggleBulkEditor() {
             var editor = document.getElementById('bulkEditor');
@@ -853,6 +1072,145 @@ switch ($action) {
             });
             editor.style.display = 'block';
             editor.scrollIntoView({ behavior: 'smooth' });
+        }
+        function fillRowFromAI(idx, data) {
+            var container = getProductContainer(idx);
+            var row = container.querySelector('.row.g-3');
+            if (data.name_en) row.querySelector('.mp-name').value = data.name_en;
+            if (data.name_sw) row.querySelector('.mp-name-sw').value = data.name_sw;
+            if (data.category_id) row.querySelector('.mp-cat').value = data.category_id;
+            if (data.price) row.querySelector('.mp-price').value = data.price;
+            if (data.brand) row.querySelector('.mp-brand').value = data.brand;
+            if (data.description_en) row.querySelector('.mp-desc-en').value = data.description_en;
+            if (data.description_sw) row.querySelector('.mp-desc-sw').value = data.description_sw;
+            if (data.sizes && data.sizes.length) {
+                row.querySelectorAll('.mp-size').forEach(function(cb) {
+                    cb.checked = data.sizes.indexOf(cb.value) !== -1;
+                });
+            }
+            if (data.colors && data.colors.length) {
+                var list = row.querySelector('.mp-colors-list');
+                list.innerHTML = '';
+                data.colors.forEach(function(c) {
+                    var hex = COLOR_PALETTE[c] || '#ccc';
+                    var span = document.createElement('span');
+                    span.className = 'd-inline-flex align-items-center gap-1 px-2 py-1 rounded small';
+                    span.style.cssText = 'background:' + hex + '20;border:1px solid ' + hex + ';font-size:11px';
+                    span.dataset.color = c;
+                    span.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:' + hex + ';border:1px solid #999"></span> ' + c + ' <span style="cursor:pointer;color:#999" onclick="this.parentElement.remove()">✕</span>';
+                    list.appendChild(span);
+                });
+            }
+        }
+
+        function aiFillMultiProduct(idx) {
+            var p = multiProducts[idx];
+            if (!p || !p.data) { alert('No image data for this product.'); return; }
+            var btn = document.getElementById('aiFillBtn_' + idx);
+            var status = document.getElementById('aiFillStatus_' + idx);
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>';
+            status.innerHTML = '<span class="text-info"><i class="fas fa-spinner fa-spin"></i></span>';
+            fetch('<?= SITE_URL ?>/includes/ajax/ai_fill_product.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'image=' + encodeURIComponent(p.data)
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    var errMsg = data.error;
+                    if (data.details && data.details.length) errMsg += ' (' + data.details.join('; ') + ')';
+                    status.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>' + errMsg + '</span>';
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-magic me-1"></i>Fill with AI';
+                    return;
+                }
+                fillRowFromAI(idx, data);
+                status.innerHTML = '<span class="text-success"><i class="fas fa-check-circle"></i></span>';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-magic me-1"></i>Fill with AI';
+            })
+            .catch(function(err) {
+                status.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>Error</span>';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-magic me-1"></i>Fill with AI';
+            });
+        }
+
+        function aiFillAllProducts() {
+            var btn = document.getElementById('aiFillAllBtn');
+            var status = document.getElementById('aiFillAllStatus');
+            var total = multiProducts.length;
+            var done = 0;
+            var errors = 0;
+            var firstError = '';
+            btn.disabled = true;
+            status.innerHTML = '<span class="text-info"><i class="fas fa-spinner fa-spin me-1"></i>Filling 0/' + total + '...</span>';
+            function fillNext(i) {
+                if (i >= total) {
+                    var msg = 'Done! ' + done + '/' + total + ' filled' + (errors ? ', ' + errors + ' errors' : '');
+                    if (firstError) msg += ' First error: ' + firstError;
+                    status.innerHTML = '<span class="' + (errors ? 'text-warning' : 'text-success') + '"><i class="fas fa-check-circle me-1"></i>' + msg + '</span>';
+                    btn.disabled = false;
+                    return;
+                }
+                var p = multiProducts[i];
+                if (!p || !p.data) { fillNext(i + 1); return; }
+                fetch('<?= SITE_URL ?>/includes/ajax/ai_fill_product.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: 'image=' + encodeURIComponent(p.data)
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.error) {
+                        fillRowFromAI(i, data);
+                        done++;
+                    } else {
+                        var errMsg = data.error;
+                        if (data.details && data.details.length) errMsg += ' (' + data.details.join('; ') + ')';
+                        if (!firstError) firstError = errMsg;
+                        errors++;
+                    }
+                    status.innerHTML = '<span class="text-info"><i class="fas fa-spinner fa-spin me-1"></i>Filling ' + (done + errors) + '/' + total + '...</span>';
+                    setTimeout(function() { fillNext(i + 1); }, 3000);
+                })
+                .catch(function(err) {
+                    if (!firstError) firstError = err.message || 'Network error';
+                    errors++;
+                    status.innerHTML = '<span class="text-info"><i class="fas fa-spinner fa-spin me-1"></i>Filling ' + (done + errors) + '/' + total + '...</span>';
+                    setTimeout(function() { fillNext(i + 1); }, 3000);
+                });
+            }
+            fillNext(0);
+        }
+
+        function getSelectedIds() {
+            return Array.from(document.querySelectorAll('.product-checkbox:checked')).map(function(cb){ return cb.value; });
+        }
+
+        function deleteSelected() {
+            var ids = getSelectedIds();
+            if (!ids.length) return;
+            if (!confirm('Delete ' + ids.length + ' selected product(s)?')) return;
+            var formData = new FormData();
+            formData.append('admin_action', 'product_multi_delete');
+            formData.append('csrf_token', '<?= $_SESSION['csrf_token'] ?? '' ?>');
+            formData.append('ids', ids.join(','));
+            var btn = document.getElementById('deleteBtn');
+            var orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
+            fetch('index.php', { method: 'POST', body: formData })
+                .then(function(){ window.location.href = 'index.php?action=products'; })
+                .catch(function(){ window.location.href = 'index.php?action=products'; });
+        }
+
+        function broadcastSelected() {
+            var ids = getSelectedIds();
+            if (!ids.length) return;
+            window.location.href = 'index.php?action=broadcast&product_ids=' + ids.join(',');
         }
         </script>
     <?php break;
@@ -911,6 +1269,9 @@ switch ($action) {
                         <p><strong>Email:</strong> <?= escape($order['customer_email'] ?? '—') ?></p>
                         <p><strong>Phone:</strong> <?= escape($order['customer_phone'] ?? '—') ?></p>
                         <p><strong>Total:</strong> <?= formatMoney($order['total']) ?></p>
+                        <?php if ($order['volume_discount'] > 0): ?>
+                        <p><strong>Volume Discount:</strong> -<?= formatMoney($order['volume_discount']) ?></p>
+                        <?php endif; ?>
                         <p><strong>Status:</strong> <span class="badge bg-<?= $order['status'] === 'delivered' ? 'success' : 'secondary' ?>"><?= ucfirst($order['status']) ?></span></p>
                         <p><strong>Payment:</strong> <?= ucwords(str_replace('_', ' ', $order['payment_method'])) ?> - <span class="text-<?= $order['payment_status'] === 'paid' ? 'success' : 'warning' ?>"><?= $order['payment_status'] ?></span></p>
                         <p><strong>Placed:</strong> <?= date('M d, Y H:i', strtotime($order['created_at'])) ?></p>
@@ -1219,7 +1580,7 @@ switch ($action) {
 
     case 'broadcast':
         require_once __DIR__ . '/../includes/notifications.php';
-        $product = null;
+        $product = null; $productList = [];
         $prefillTitle = '';
         $prefillMessage = '';
         $prefillLink = '';
@@ -1233,11 +1594,31 @@ switch ($action) {
                 $prefillMessage = "We are excited to announce a new arrival — {$product['name_en']}!" . ($product['name_sw'] ? " / Tunatangaza kwa furaha bidhaa mpya — {$product['name_sw']}!" : '') . " Check it out now!";
                 $prefillLink = SITE_URL . '/shop/index.php?product=' . $product['slug'];
             }
+        } elseif (isset($_GET['product_ids'])) {
+            $pids = array_filter(array_map('intval', explode(',', $_GET['product_ids'])));
+            if ($pids) {
+                $placeholders = implode(',', array_fill(0, count($pids), '?'));
+                $stmt = $db->prepare("SELECT * FROM products WHERE id IN ($placeholders)");
+                $stmt->execute(array_values($pids));
+                $productList = $stmt->fetchAll();
+                if ($productList) {
+                    $names = array_column($productList, 'name_en');
+                    $prefillTitle = 'New Arrivals';
+                    $prefillMessage = "We are excited to announce new arrivals: " . implode(', ', $names) . "! Check them out now!";
+                    if (count($pids) === 1) {
+                        $prefillLink = SITE_URL . '/shop/index.php?product=' . $productList[0]['slug'];
+                    } else {
+                        $prefillLink = SITE_URL . '/shop/new-arrivals.php';
+                    }
+                }
+            }
         }
     ?>
         <h4 class="fw-600 mb-3"><i class="fas fa-bullhorn me-2"></i>Broadcast Notification</h4>
         <?php if ($product): ?>
         <div class="alert alert-info">Preparing notification for product: <strong><?= escape($product['name_en']) ?></strong></div>
+        <?php elseif ($productList): ?>
+        <div class="alert alert-info">Preparing notification for <strong><?= count($productList) ?> products</strong>: <?= escape(implode(', ', array_column($productList, 'name_en'))) ?></div>
         <?php endif; ?>
         <div class="border p-4" style="max-width: 700px;">
             <form method="POST">
@@ -1390,8 +1771,58 @@ switch ($action) {
                 </div>
             </div>
 
-            <button type="submit" class="btn btn-gold">Save All Settings</button>
+            <div class="border p-4 mb-3">
+                <h6 class="fw-600 mb-3"><i class="fas fa-layer-group me-2"></i>Volume Discount Tiers</h6>
+                <p class="small text-muted mb-3">Automatic discounts based on total cart quantity. Applied before coupons.</p>
+                <?php $vdTiers = json_decode(getSetting('volume_discount_tiers', VOLUME_DISCOUNT_TIERS), true); ?>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered" id="vdTiersTable">
+                        <thead><tr><th>Min Qty</th><th>Max Qty</th><th>Discount (%)</th><th></th></tr></thead>
+                        <tbody>
+                            <?php foreach ($vdTiers as $i => $tier): ?>
+                            <tr>
+                                <td><input type="number" name="vd_min_<?= $i ?>" class="form-control form-control-sm" value="<?= $tier[0] ?>" style="width:80px"></td>
+                                <td><input type="number" name="vd_max_<?= $i ?>" class="form-control form-control-sm" value="<?= $tier[1] ?>" style="width:80px"></td>
+                                <td><input type="number" step="0.1" name="vd_pct_<?= $i ?>" class="form-control form-control-sm" value="<?= $tier[2] ?>" style="width:80px"></td>
+                                <td><button type="button" class="btn btn-sm btn-danger-custom" onclick="this.closest('tr').remove()"><i class="fas fa-trash"></i></button></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-dark-custom" onclick="addVdTier()"><i class="fas fa-plus me-1"></i>Add Tier</button>
+                <input type="hidden" name="volume_discount_tiers" id="volume_discount_tiers_input">
+            </div>
+
+            <button type="submit" class="btn btn-gold" onclick="serializeVdTiers()">Save All Settings</button>
         </form>
+        <script>
+        function addVdTier() {
+            var tbody = document.querySelector('#vdTiersTable tbody');
+            var idx = tbody.children.length;
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td><input type="number" name="vd_min_' + idx + '" class="form-control form-control-sm" value="0" style="width:80px"></td>' +
+                '<td><input type="number" name="vd_max_' + idx + '" class="form-control form-control-sm" value="0" style="width:80px"></td>' +
+                '<td><input type="number" step="0.1" name="vd_pct_' + idx + '" class="form-control form-control-sm" value="0" style="width:80px"></td>' +
+                '<td><button type="button" class="btn btn-sm btn-danger-custom" onclick="this.closest(\'tr\').remove()"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+        }
+        function serializeVdTiers() {
+            var tiers = [];
+            document.querySelectorAll('#vdTiersTable tbody tr').forEach(function(tr) {
+                var inputs = tr.querySelectorAll('input');
+                if (inputs.length === 3) {
+                    var min = parseInt(inputs[0].value);
+                    var max = parseInt(inputs[1].value);
+                    var pct = parseFloat(inputs[2].value);
+                    if (!isNaN(min) && !isNaN(max) && !isNaN(pct)) {
+                        tiers.push([min, max, pct]);
+                    }
+                }
+            });
+            document.getElementById('volume_discount_tiers_input').value = JSON.stringify(tiers);
+        }
+        </script>
 
         <!-- Password Verification Modal -->
         <div class="modal fade" id="settingsPasswordModal" tabindex="-1">

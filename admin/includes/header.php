@@ -77,3 +77,31 @@ $unreadNotifs = getUnreadNotificationCount($_SESSION['user_id']);
         <?php if (isset($_SESSION['error'])): ?>
             <div class="alert alert-danger alert-dismissible fade show"><?= escape($_SESSION['error']) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
         <?php unset($_SESSION['error']); endif; ?>
+        <?php if (isset($_SESSION['broadcast_result'])): $br = $_SESSION['broadcast_result']; unset($_SESSION['broadcast_result']); ?>
+            <div class="alert alert-success alert-dismissible fade show">
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <strong><i class="fas fa-bullhorn me-1"></i>Broadcast sent!</strong>
+                    <span class="badge bg-dark"><i class="fas fa-users me-1"></i><?= $br['total_users'] ?> total users</span>
+                    <?php if (isset($br['inapp_sent'])): ?>
+                        <span class="small text-success"><i class="fas fa-check-circle me-1"></i>In-App: <strong><?= $br['inapp_sent'] ?> sent</strong>
+                            <?php $inappSkipped = $br['total_users'] - $br['inapp_sent']; if ($inappSkipped > 0): ?><span class="text-muted">(<?= $inappSkipped ?> skipped)</span><?php endif; ?>
+                        </span>
+                    <?php endif; ?>
+                    <?php if (isset($br['email_sent'])): ?>
+                        <span class="small <?= $br['email_failed'] > 0 ? 'text-warning' : 'text-success' ?>">
+                            <i class="fas <?= $br['email_failed'] > 0 ? 'fa-exclamation-triangle' : 'fa-check-circle' ?> me-1"></i>
+                            Email: <strong><?= $br['email_sent'] ?> sent</strong> / <strong><?= $br['email_eligible'] ?> eligible</strong>
+                            <?php if ($br['email_failed'] > 0): ?><span class="text-danger"><?= $br['email_failed'] ?> failed</span><?php endif; ?>
+                        </span>
+                    <?php endif; ?>
+                    <?php if (isset($br['sms_sent'])): ?>
+                        <span class="small <?= $br['sms_failed'] > 0 ? 'text-warning' : 'text-success' ?>">
+                            <i class="fas <?= $br['sms_failed'] > 0 ? 'fa-exclamation-triangle' : 'fa-check-circle' ?> me-1"></i>
+                            SMS: <strong><?= $br['sms_sent'] ?> sent</strong> / <strong><?= $br['sms_eligible'] ?> eligible</strong>
+                            <?php if ($br['sms_failed'] > 0): ?><span class="text-danger"><?= $br['sms_failed'] ?> failed</span><?php endif; ?>
+                        </span>
+                    <?php endif; ?>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>

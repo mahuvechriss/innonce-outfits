@@ -267,6 +267,8 @@ $lang['en'] = [
     'total' => 'Total',
     'no_orders_yet' => 'No orders yet',
     'start_shopping' => 'Start shopping and your orders will appear here.',
+    'volume_discount' => 'Volume Discount',
+    'volume_discount_desc' => 'Bulk purchase discount applied based on total items in cart',
 ];
 
 
@@ -537,5 +539,7 @@ $lang['sw'] = [
     'total' => 'Jumla',
     'no_orders_yet' => 'Hakuna maagizo bado',
     'start_shopping' => 'Anza kununua na maagizo yako yataonekana hapa.',
+    'volume_discount' => 'Punguzo la Wingi',
+    'volume_discount_desc' => 'Punguzo la ununuzi wa wingi kwa kiasi cha bidhaa kwenye raha',
 ];
 

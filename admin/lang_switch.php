@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../config.php';
 session_start();
 $lang = $_GET['lang'] ?? '';
 if ($lang === 'sw' || $lang === 'en') {

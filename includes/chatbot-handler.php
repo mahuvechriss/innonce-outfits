@@ -4,8 +4,15 @@ require_once __DIR__ . '/../config.php';
 header('Content-Type: application/json');
 
 $message = trim($_POST['message'] ?? $_GET['message'] ?? '');
+$chatLang = trim($_POST['lang'] ?? $_GET['lang'] ?? 'en');
+if (!in_array($chatLang, ['en', 'sw'])) $chatLang = 'en';
+$langInstruction = $chatLang === 'sw' ? 'Answer in Swahili (Kiswahili).' : 'Answer in English.';
+
 if (!$message) {
-    sendJson(['reply' => 'Hello! I am INNOCEshow. How can I help you today?', 'products' => []]);
+    $emptyReply = $chatLang === 'sw'
+        ? 'Habari! Mimi ni INNOCEshow. Nikusaidie nini leo?'
+        : 'Hello! I am INNOCEshow. How can I help you today?';
+    sendJson(['reply' => $emptyReply, 'products' => []]);
 }
 
 // --- Build dynamic store info from database (auto-updates when admin changes settings) ---
@@ -224,7 +231,7 @@ User asked: \"$message\"
 " . ($needsMath ? "IMPORTANT: The user is asking about calculations (totals, quantities, sums, etc.). Do the math using the product prices and show the result clearly. Include shipping if delivery is requested." : "If products were found, mention them naturally. If not, suggest alternatives.") . "
 
 Instructions:
-1. Answer in the same language as the user (English or Swahili).
+1. $langInstruction Always use the user's selected language even if they write in another language — only switch if they explicitly ask to change language.
 2. Be concise (2-4 sentences). DO NOT repeat the user's question.
 3. If the user asked for quantities or totals, CALCULATE and show the result (e.g., \"20 belts × TZS 12,000 = TZS 240,000\").
 4. If the user asked about delivery cost, include the shipping fee in the total.
@@ -271,9 +278,13 @@ Instructions:
 
     if (!$reply) {
         if ($hasProducts) {
-            $reply = "🔍 " . ($needsMath ? "Here are the products for your calculation:" : "I found these products for you:");
+            $reply = $chatLang === 'sw'
+                ? "🔍 " . ($needsMath ? "Hizi ndizo bidhaa za hesabu yako:" : "Nimepata bidhaa hizi kwako:")
+                : "🔍 " . ($needsMath ? "Here are the products for your calculation:" : "I found these products for you:");
         } else {
-            $reply = "Sorry, I couldn't find products matching \"$message\". Try different words or browse our categories.";
+            $reply = $chatLang === 'sw'
+                ? "Samahani, sikuweza kupata bidhaa zinazolingana na \"$message\". Jaribu maneno mengine au angalia kategoria zetu."
+                : "Sorry, I couldn't find products matching \"$message\". Try different words or browse our categories.";
         }
     }
 } else {
@@ -284,7 +295,7 @@ Instructions:
 - WhatsApp: +255 752 263 474 / +255 683 086 608
 - Website: " . SITE_URL . "
 - Shipping: $shipRateDefault% of subtotal if under $shipThreshold $currency, $shipRateReduced% if over. Free above $freeShipMin $currency. Pickup = free.
-Be friendly and concise. Answer in the same language as the user (English or Swahili).
+Be friendly and concise. $langInstruction Always use the user's selected language even if they write in another language — only switch if they explicitly ask to change language.
 For location: paste the Google Maps URL directly as a raw link.
 For contact: include the WhatsApp number.";
 
@@ -318,12 +329,13 @@ For contact: include the WhatsApp number.";
 
         if ($response && $httpCode === 200) {
             $data = json_decode($response, true);
-            $reply = $data['choices'][0]['message']['content'] ?? "Hello! How can I help you today?";
+            $fallbackReply = $chatLang === 'sw' ? "Habari! Nikusaidie nini leo?" : "Hello! How can I help you today?";
+            $reply = $data['choices'][0]['message']['content'] ?? $fallbackReply;
         } else {
-            $reply = "Hello! How can I help you today?";
+            $reply = $chatLang === 'sw' ? "Habari! Nikusaidie nini leo?" : "Hello! How can I help you today?";
         }
     } catch (Exception $e) {
-        $reply = "Hello! How can I help you today?";
+        $reply = $chatLang === 'sw' ? "Habari! Nikusaidie nini leo?" : "Hello! How can I help you today?";
     }
 }
 

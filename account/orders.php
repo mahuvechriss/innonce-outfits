@@ -128,6 +128,7 @@ if ($orderNumber) {
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('subtotal') ?></span><span><?= formatMoney($order['subtotal']) ?></span></div>
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('shipping') ?></span><span><?= $order['shipping'] ? formatMoney($order['shipping']) : '<span class="text-success">' . __('free') . '</span>' ?></span></div>
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('tax') ?></span><span><?= formatMoney($order['tax']) ?></span></div>
+                    <?php if ($order['volume_discount'] > 0): ?><div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('volume_discount') ?></span><span class="text-danger">-<?= formatMoney($order['volume_discount']) ?></span></div><?php endif; ?>
                     <?php if ($order['discount']): ?><div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('discount') ?></span><span class="text-danger">-<?= formatMoney($order['discount']) ?></span></div><?php endif; ?>
                     <hr>
                     <div class="d-flex justify-content-between fw-700 fs-5"><span><?= __('total') ?></span><span class="text-gold"><?= formatMoney($order['total']) ?></span></div>

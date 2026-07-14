@@ -13,6 +13,18 @@ function toggleChat() {
     }
 }
 
+function chatSwitchLang(lang) {
+    CHAT_LANG = lang;
+    var enBtn = document.getElementById('chat-lang-en');
+    var swBtn = document.getElementById('chat-lang-sw');
+    if (enBtn) { enBtn.style.background = lang === 'en' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.12)'; enBtn.style.fontWeight = lang === 'en' ? '700' : '400'; }
+    if (swBtn) { swBtn.style.background = lang === 'sw' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.12)'; swBtn.style.fontWeight = lang === 'sw' ? '700' : '400'; }
+    var input = document.getElementById('chat-input');
+    if (input) input.placeholder = lang === 'sw' ? 'Muulize INNOCEshow...' : 'Ask INNOCEshow...';
+    var msg = lang === 'sw' ? '🔁 Umebadilisha lugha kuwa Kiswahili' : '🔁 Switched to English';
+    addMessage(msg, 'bot');
+}
+
 function sendChat() {
     var input = document.getElementById('chat-input');
     var msg = input.value.trim();
@@ -51,7 +63,8 @@ function sendChat() {
         addMessage('Connection error. Please try again.', 'bot');
         scrollChat();
     };
-    xhr.send('message=' + encodeURIComponent(msg));
+    var lang = typeof CHAT_LANG !== 'undefined' ? CHAT_LANG : 'en';
+    xhr.send('message=' + encodeURIComponent(msg) + '&lang=' + encodeURIComponent(lang));
 }
 
 function addMessage(text, type) {

@@ -110,6 +110,28 @@ function getSetting(string $key, string $default = ''): string {
     return $row ? $row['value'] : $default;
 }
 
+function getTotalCartQuantity(int $userId): int {
+    global $db;
+    $stmt = $db->prepare("SELECT SUM(quantity) FROM cart WHERE user_id = ?");
+    $stmt->execute([$userId]);
+    return (int) $stmt->fetchColumn();
+}
+
+function calculateVolumeDiscount(int $totalQty): int {
+    $tiers = json_decode(getSetting('volume_discount_tiers', VOLUME_DISCOUNT_TIERS), true);
+    if (!is_array($tiers)) {
+        $tiers = json_decode(VOLUME_DISCOUNT_TIERS, true);
+    }
+    $percent = 0;
+    foreach ($tiers as [$min, $max, $pct]) {
+        if ($totalQty >= $min && $totalQty <= $max) {
+            $percent = $pct;
+            break;
+        }
+    }
+    return $percent;
+}
+
 function formatMoney(float $amount): string {
     return CURRENCY . ' ' . number_format($amount);
 }

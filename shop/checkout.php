@@ -6,17 +6,21 @@ requireLogin();
 $pageTitle = 'Checkout';
 
 $userId = $_SESSION['user_id'];
-$stmt = $db->prepare("SELECT c.*, p.name_en, p.slug, p.price, p.discount_price, pi.image_path as primary_image FROM cart c JOIN products p ON c.product_id = p.id LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1 WHERE c.user_id = ?");
+$stmt = $db->prepare("SELECT c.*, p.name_en, p.name_sw, p.slug, p.price, p.discount_price, pi.image_path as primary_image FROM cart c JOIN products p ON c.product_id = p.id LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1 WHERE c.user_id = ?");
 $stmt->execute([$userId]);
 $items = $stmt->fetchAll();
 
 if (!$items) { redirect('cart.php', 'Your cart is empty.', 'error'); }
 
 $subtotal = 0;
+$totalQty = 0;
 foreach ($items as $item) {
     $price = $item['discount_price'] ?: $item['price'];
     $subtotal += $price * $item['quantity'];
+    $totalQty += $item['quantity'];
 }
+$volumeDiscountPct = calculateVolumeDiscount($totalQty);
+$volumeDiscount = $subtotal * $volumeDiscountPct / 100;
 $discount = $_SESSION['coupon']['discount'] ?? 0;
 $deliveryMethod = $_POST['delivery_method'] ?? $_SESSION['delivery_method'] ?? 'delivery';
 $shippingThreshold = (float)getSetting('shipping_threshold', SHIPPING_THRESHOLD);
@@ -28,7 +32,7 @@ $freeShippingMin = (float)getSetting('free_shipping_min', FREE_SHIPPING_MIN);
 if ($subtotal >= $freeShippingMin) $shipping = 0;
 $taxRate = (float)(getSetting('tax_rate', TAX_RATE));
 $tax = $subtotal * $taxRate / 100;
-$total = $subtotal + $tax + $shipping - $discount;
+$total = $subtotal + $tax + $shipping - $volumeDiscount - $discount;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) { redirect('checkout.php', 'Invalid token.', 'error'); }
@@ -63,8 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $couponCode = $_SESSION['coupon']['code'] ?? null;
         $couponDiscount = $discount;
 
-        $stmt = $db->prepare("INSERT INTO orders (user_id, customer_name, customer_phone, order_number, status, subtotal, tax, shipping, delivery_method, discount, total, payment_method, payment_status, currency, shipping_address, coupon_code, coupon_discount) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, 'unpaid', 'TZS', ?, ?, ?)");
-        $stmt->execute([$userId, $name, $phone, $orderNumber, $subtotal, $tax, $shipping, $deliveryMethod, $discount, $total, $paymentMethod, $shippingAddress, $couponCode, $couponDiscount]);
+        $stmt = $db->prepare("INSERT INTO orders (user_id, customer_name, customer_phone, order_number, status, subtotal, tax, shipping, delivery_method, discount, volume_discount, total, payment_method, payment_status, currency, shipping_address, coupon_code, coupon_discount) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', 'TZS', ?, ?, ?)");
+        $stmt->execute([$userId, $name, $phone, $orderNumber, $subtotal, $tax, $shipping, $deliveryMethod, $discount, $volumeDiscount, $total, $paymentMethod, $shippingAddress, $couponCode, $couponDiscount]);
         $orderId = $db->lastInsertId();
 
         foreach ($items as $item) {
@@ -278,7 +282,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="d-flex gap-2 mb-2 align-items-center">
                         <img src="<?= $item['primary_image'] ? SITE_URL . '/' . $item['primary_image'] : 'https://placehold.co/60x75/121212/FF8C00?text=N' ?>" style="width: 50px; height: 60px; object-fit: cover; border-radius: 8px;">
                         <div class="small flex-grow-1">
-                            <div class="fw-600"><?= escape($item['name_en']) ?></div>
+                            <div class="fw-600"><?= escape(t($item['name_en'], $item['name_sw'])) ?></div>
                             <small class="text-muted"><i class="fas fa-times me-1"></i><?= $item['quantity'] ?></small>
                         </div>
                         <div class="small fw-600"><?= formatMoney(($item['discount_price'] ?: $item['price']) * $item['quantity']) ?></div>
@@ -292,6 +296,9 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('shipping') ?></span><span><?= $shipping ? formatMoney($shipping) : '<span class="text-success"><i class="fas fa-check-circle me-1"></i>' . __('free') . '</span>' ?></span></div>
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('tax') ?></span><span><?= formatMoney($tax) ?></span></div>
+                    <?php if ($volumeDiscount > 0): ?>
+                    <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('volume_discount') ?> (<?= $volumeDiscountPct ?>%)</span><span class="text-danger">-<?= formatMoney($volumeDiscount) ?></span></div>
+                    <?php endif; ?>
                     <?php if ($discount > 0): ?>
                     <div class="d-flex justify-content-between small mb-1"><span class="text-muted"><?= __('discount') ?></span><span class="text-danger">-<?= formatMoney($discount) ?></span></div>
                     <?php endif; ?>

@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('wishlist.php');
 }
 
-$stmt = $db->prepare("SELECT w.*, p.name_en, p.slug, p.price, p.discount_price, pi.image_path as primary_image FROM wishlists w JOIN products p ON w.product_id = p.id LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1 WHERE w.user_id = ? ORDER BY w.created_at DESC");
+$stmt = $db->prepare("SELECT w.*, p.name_en, p.name_sw, p.slug, p.price, p.discount_price, pi.image_path as primary_image FROM wishlists w JOIN products p ON w.product_id = p.id LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1 WHERE w.user_id = ? ORDER BY w.created_at DESC");
 $stmt->execute([$userId]);
 $items = $stmt->fetchAll();
 
@@ -72,7 +72,7 @@ require_once __DIR__ . '/../includes/header.php'; ?>
             <div class="card product-card">
                 <div class="position-relative">
                     <a href="index.php?product=<?= escape($item['slug']) ?>">
-                        <img src="<?= $item['primary_image'] ? SITE_URL . '/' . $item['primary_image'] : 'https://placehold.co/300x400/121212/FF8C00?text=N' ?>" alt="<?= escape($item['name_en']) ?>">
+                        <img src="<?= $item['primary_image'] ? SITE_URL . '/' . $item['primary_image'] : 'https://placehold.co/300x400/121212/FF8C00?text=N' ?>" alt="<?= escape(t($item['name_en'], $item['name_sw'])) ?>">
                     </a>
                     <form action="wishlist.php" method="POST" class="position-absolute top-0 end-0 p-2">
                         <?= csrf() ?><input type="hidden" name="action" value="remove"><input type="hidden" name="id" value="<?= $item['id'] ?>">
@@ -81,7 +81,7 @@ require_once __DIR__ . '/../includes/header.php'; ?>
                 </div>
                 <div class="card-body">
                     <small class="text-muted text-uppercase small"><i class="fas fa-tag me-1"></i><?= __('product') ?></small>
-                    <h6 class="mt-1"><a href="index.php?product=<?= escape($item['slug']) ?>" class="text-dark text-decoration-none"><?= escape($item['name_en']) ?></a></h6>
+                    <h6 class="mt-1"><a href="index.php?product=<?= escape($item['slug']) ?>" class="text-dark text-decoration-none"><?= escape(t($item['name_en'], $item['name_sw'])) ?></a></h6>
                     <div class="d-flex align-items-center gap-2 mb-3">
                         <?php if ($item['discount_price']): ?>
                         <span class="price-current text-gold"><?= formatMoney($item['discount_price']) ?></span>

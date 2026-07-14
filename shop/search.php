@@ -25,10 +25,10 @@ if ($q) {
             <div class="col-md-3">
                 <div class="card product-card">
                     <a href="index.php?product=<?= escape($p['slug']) ?>">
-                        <img src="<?= $p['primary_image'] ? SITE_URL . '/' . $p['primary_image'] : 'https://placehold.co/300x400/121212/FF8C00?text=N' ?>" alt="<?= escape($p['name_en']) ?>">
+                        <img src="<?= $p['primary_image'] ? SITE_URL . '/' . $p['primary_image'] : 'https://placehold.co/300x400/121212/FF8C00?text=N' ?>" alt="<?= escape(t($p['name_en'], $p['name_sw'])) ?>">
                     </a>
                     <div class="card-body">
-                        <h6><a href="index.php?product=<?= escape($p['slug']) ?>" class="text-dark text-decoration-none"><?= escape($p['name_en']) ?></a></h6>
+                        <h6><a href="index.php?product=<?= escape($p['slug']) ?>" class="text-dark text-decoration-none"><?= escape(t($p['name_en'], $p['name_sw'])) ?></a></h6>
                         <div class="fw-600"><?= formatMoney($p['discount_price'] ?: $p['price']) ?></div>
                     </div>
                 </div>

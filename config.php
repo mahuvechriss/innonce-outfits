@@ -1,4 +1,7 @@
 <?php
+$sessionPath = __DIR__ . '/tmp';
+if (!is_dir($sessionPath)) { mkdir($sessionPath, 0777, true); }
+ini_set('session.save_path', $sessionPath);
 session_start();
 date_default_timezone_set('Africa/Dar_es_Salaam');
 
@@ -41,6 +44,15 @@ define('SHIPPING_RATE_REDUCED', 2);
 define('FREE_SHIPPING_MIN', 200000);
 define('ITEMS_PER_PAGE', 12);
 
+// Volume discount tiers: [min_qty, max_qty, discount_percent]
+define('VOLUME_DISCOUNT_TIERS', json_encode([
+    [3, 9, 2],
+    [10, 19, 3],
+    [20, 39, 4],
+    [40, 59, 5],
+    [60, 999999, 6],
+]));
+
 try {
     $db = new PDO("mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4", DB_USER, DB_PASS, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -57,7 +69,20 @@ require_once __DIR__ . '/includes/lang.php';
 // Clerk Authentication (https://clerk.com)
 define('CLERK_PUBLISHABLE_KEY', env('CLERK_PUBLISHABLE_KEY', ''));
 
-// OpenRouter AI (https://openrouter.ai)
+// Google Gemini AI (https://aistudio.google.com) - Primary, free tier
+define('GEMINI_API_KEY', env('GEMINI_API_KEY', ''));
+
+// Groq AI (https://console.groq.com) - Free Llama vision
+define('GROQ_API_KEY', env('GROQ_API_KEY', ''));
+define('GROQ_MODEL', env('GROQ_MODEL', 'meta-llama/llama-4-scout-17b-16e-instruct'));
+define('GROQ_ENDPOINT', 'https://api.groq.com/openai/v1/chat/completions');
+
+// DeepSeek AI (https://platform.deepseek.com) - Cheap vision model
+define('DEEPSEEK_API_KEY', env('DEEPSEEK_API_KEY', ''));
+define('DEEPSEEK_MODEL', env('DEEPSEEK_MODEL', 'deepseek-vl2'));
+define('DEEPSEEK_ENDPOINT', 'https://api.deepseek.com/chat/completions');
+
+// OpenRouter AI (https://openrouter.ai) - Fallback
 define('AI_FALLBACK_ENDPOINT', env('AI_FALLBACK_ENDPOINT', 'https://openrouter.ai/api/v1/chat/completions'));
 define('AI_FALLBACK_KEY', env('AI_FALLBACK_KEY', ''));
 define('AI_FALLBACK_MODEL', env('AI_FALLBACK_MODEL', 'openai/gpt-4o-mini'));

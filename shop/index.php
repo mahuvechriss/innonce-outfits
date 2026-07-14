@@ -38,14 +38,14 @@ if ($productSlug) {
                 <?php if ($product['category_name']): ?>
                 <li class="breadcrumb-item"><a href="index.php?category=<?= escape($product['category_slug']) ?>" class="text-muted"><i class="fas fa-th-large me-1"></i><?= escape($product['category_name']) ?></a></li>
                 <?php endif; ?>
-                <li class="breadcrumb-item active text-gold" aria-current="page"><?= escape($product['name_en']) ?></li>
+                <li class="breadcrumb-item active text-gold" aria-current="page"><?= escape(t($product['name_en'], $product['name_sw'])) ?></li>
             </ol>
         </nav>
         <div class="row g-5">
             <div class="col-md-6">
                 <div class="position-relative">
                     <?php $primary = array_filter($images, fn($i) => $i['is_primary']); $primary = reset($primary) ?: ($images[0] ?? null); ?>
-                    <img src="<?= $primary && !empty($primary['image_path']) ? SITE_URL . '/' . $primary['image_path'] : 'https://placehold.co/500x600/121212/FF8C00?text=' . urlencode($product['name_en']) ?>" class="w-100 rounded-3" style="height: 450px; object-fit: cover;" alt="<?= escape($product['name_en']) ?>" id="mainImage">
+                    <img src="<?= $primary && !empty($primary['image_path']) ? SITE_URL . '/' . $primary['image_path'] : 'https://placehold.co/500x600/121212/FF8C00?text=' . urlencode(t($product['name_en'], $product['name_sw'])) ?>" class="w-100 rounded-3" style="height: 450px; object-fit: cover;" alt="<?= escape(t($product['name_en'], $product['name_sw'])) ?>" id="mainImage">
                     <?php if ($product['discount_price']): ?>
                     <span class="ribbon"><i class="fas fa-tag me-1"></i><?= round((1 - $product['discount_price'] / $product['price']) * 100) ?>% OFF</span>
                     <?php endif; ?>
@@ -60,8 +60,8 @@ if ($productSlug) {
             </div>
             <div class="col-md-6">
                 <span class="badge bg-dark text-uppercase small mb-2"><i class="fas fa-tag me-1"></i><?= escape($product['brand'] ?? 'INNOCE') ?></span>
-                <h3 class="fw-700" style="font-family: 'Playfair Display', serif;"><?= escape($product['name_en']) ?></h3>
-                <p class="text-muted small"><i class="fas fa-language me-1"></i><?= escape($product['name_sw']) ?></p>
+                <h3 class="fw-700" style="font-family: 'Playfair Display', serif;"><?= escape(t($product['name_en'], $product['name_sw'])) ?></h3>
+                <p class="text-muted small"><i class="fas fa-language me-1"></i><?= escape(currentLang() === 'sw' ? $product['name_en'] : $product['name_sw']) ?></p>
                 <div class="d-flex align-items-center gap-3 mb-3">
                     <div class="fs-4 fw-700">
                         <?php if ($product['discount_price']): ?>
@@ -77,7 +77,7 @@ if ($productSlug) {
                     <span class="badge bg-danger small"><i class="fas fa-times-circle me-1"></i><?= __('out_of_stock') ?></span>
                     <?php endif; ?>
                 </div>
-                <p class="text-muted"><?= nl2br(escape($product['description_en'])) ?></p>
+                <p class="text-muted"><?= nl2br(escape(t($product['description_en'], $product['description_sw']))) ?></p>
                 <form action="<?= SITE_URL ?>/shop/cart.php" method="POST" class="mt-4">
                     <?= csrf() ?>
                     <input type="hidden" name="action" value="add">
@@ -320,7 +320,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="card product-card">
                         <div class="position-relative">
                             <a href="index.php?product=<?= escape($product['slug']) ?>">
-                                <img src="<?= $product['primary_image'] ? SITE_URL . '/' . $product['primary_image'] : 'https://placehold.co/300x400/121212/FF8C00?text=INNOCE' ?>" alt="<?= escape($product['name_en']) ?>">
+                                <img src="<?= $product['primary_image'] ? SITE_URL . '/' . $product['primary_image'] : 'https://placehold.co/300x400/121212/FF8C00?text=INNOCE' ?>" alt="<?= escape(t($product['name_en'], $product['name_sw'])) ?>">
                             </a>
                             <?php if ($product['discount_price']): ?>
                             <span class="ribbon"><i class="fas fa-tag me-1"></i><?= round((1 - $product['discount_price'] / $product['price']) * 100) ?>% OFF</span>
@@ -331,7 +331,7 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                         <div class="card-body">
                             <small class="text-muted text-uppercase small"><i class="fas fa-tag me-1"></i><?= escape($product['brand'] ?? 'INNOCE') ?></small>
-                            <h6 class="mt-1"><a href="index.php?product=<?= escape($product['slug']) ?>" class="text-dark text-decoration-none"><?= escape($product['name_en']) ?></a></h6>
+                            <h6 class="mt-1"><a href="index.php?product=<?= escape($product['slug']) ?>" class="text-dark text-decoration-none"><?= escape(t($product['name_en'], $product['name_sw'])) ?></a></h6>
                             <div class="d-flex align-items-center gap-2 mb-2">
                                 <?php if ($product['discount_price']): ?>
                                 <span class="price-current text-gold"><?= formatMoney($product['discount_price']) ?></span>
