@@ -214,7 +214,10 @@ function sendBroadcastNotification(string $title, string $message, string $recip
 
         if ($smsEnabled && $prefSms && !empty($user['phone'])) {
             $stats['sms_eligible']++;
-            if (sendSms($user['phone'], "$title - $fullMessage")) {
+            $smsText = "$title - $message" . ($productLink ? " - Check it out on our website!" : '');
+            $smsText = str_replace(["\r\n", "\r", "\n"], ' ', $smsText);
+            $smsText = preg_replace('/\s+/', ' ', trim($smsText));
+            if (sendSms($user['phone'], $smsText)) {
                 $stats['sms_sent']++;
             } else {
                 $stats['sms_failed']++;

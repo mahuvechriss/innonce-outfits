@@ -59,6 +59,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    require_once __DIR__ . '/../includes/beem.php';
+    if (!isValidTzPhone($phone)) {
+        $_SESSION['error'] = 'Enter a valid phone number (e.g. 0712 345 678 or +255 712 345 678).';
+        header('Location: checkout.php');
+        exit;
+    }
+
     try {
         $db->beginTransaction();
 
@@ -167,7 +174,7 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                         <div class="col-md-6">
                             <label class="form-label"><i class="fas fa-phone me-1"></i><?= __('phone') ?> <span class="text-danger">*</span></label>
-                            <input type="tel" name="phone" class="form-control" value="<?= escape($user['phone'] ?? '') ?>" required>
+                            <input type="tel" name="phone" class="form-control" value="<?= escape($user['phone'] ?? '') ?>" pattern="[\+\d\s\-]{9,15}" title="Tanzanian phone: 0712 345 678 or +255 712 345 678" placeholder="0712 345 678" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label"><i class="fas fa-envelope me-1"></i><?= __('email') ?> <span class="text-danger">*</span></label>

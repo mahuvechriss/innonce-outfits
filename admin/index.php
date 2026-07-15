@@ -1747,7 +1747,7 @@ switch ($action) {
                 <div class="row g-3">
                     <div class="col-md-4"><label class="form-label small">API Key</label><input type="text" name="beem_api_key" class="form-control" value="<?= escape($settingsMap['beem_api_key'] ?? '') ?>" <?= $locked ? 'disabled' : '' ?>></div>
                     <div class="col-md-4"><label class="form-label small">Secret Key</label><input type="password" name="beem_secret_key" class="form-control" value="<?= escape($settingsMap['beem_secret_key'] ?? '') ?>" <?= $locked ? 'disabled' : '' ?>></div>
-                    <div class="col-md-4"><label class="form-label small">Sender ID</label><input type="text" name="beem_sender_id" class="form-control" value="<?= escape($settingsMap['beem_sender_id'] ?? 'CHILDPLUSTZ') ?>" <?= $locked ? 'disabled' : '' ?>></div>
+                    <div class="col-md-4"><label class="form-label small">Sender ID</label><input type="text" name="beem_sender_id" class="form-control" value="<?= escape($settingsMap['beem_sender_id'] ?? 'CHILDAFYA') ?>" <?= $locked ? 'disabled' : '' ?>></div>
                 </div>
             </div>
 

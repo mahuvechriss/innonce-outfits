@@ -2,32 +2,48 @@
 
 function beemApiKey(): string { $v = getSetting('beem_api_key', ''); return $v ?: env('BEEM_API_KEY', ''); }
 function beemSecretKey(): string { $v = getSetting('beem_secret_key', ''); return $v ?: env('BEEM_SECRET_KEY', ''); }
-function beemSenderId(): string { $v = getSetting('beem_sender_id', ''); return $v ?: env('BEEM_SENDER_ID', 'CHILDPLUSTZ'); }
+function beemSenderId(): string { $v = getSetting('beem_sender_id', ''); return $v ?: env('BEEM_SENDER_ID', 'CHILDAFYA'); }
+
+function formatSmsPhone(string $phone): string {
+    $phone = preg_replace('/\D+/', '', $phone);
+    if (strlen($phone) === 9) {
+        $phone = '255' . $phone;
+    } elseif (strlen($phone) === 10 && $phone[0] === '0') {
+        $phone = '255' . substr($phone, 1);
+    } elseif (strlen($phone) === 12 && substr($phone, 0, 3) === '255') {
+    } elseif (strlen($phone) > 12) {
+        $phone = substr($phone, -12);
+    }
+    return $phone;
+}
+
+function isValidTzPhone(string $phone): bool {
+    $p = formatSmsPhone($phone);
+    return strlen($p) === 12 && substr($p, 0, 3) === '255';
+}
 
 function sendSms(string $phone, string $message): bool {
     $apiKey = beemApiKey();
     $secretKey = beemSecretKey();
-    $senderId = trim(preg_replace('/[^a-zA-Z0-9]/', '', beemSenderId()));
-    $senderId = substr($senderId, 0, 11);
+    $senderId = beemSenderId();
 
     if (empty($apiKey) || empty($secretKey)) {
         error_log("Beem Africa: API credentials not configured.");
         return false;
     }
 
-    $phone = ltrim($phone, '+');
-    if (strlen($phone) === 9) {
-        $phone = '255' . $phone;
-    } elseif (strlen($phone) === 10 && $phone[0] === '0') {
-        $phone = '255' . substr($phone, 1);
-    } elseif (strlen($phone) === 13) {
-        $phone = substr($phone, 1);
+    $phone = formatSmsPhone($phone);
+    if (!isValidTzPhone($phone)) {
+        error_log("Beem SMS failed: Invalid phone format ($phone)");
+        return false;
     }
+
+    $message = preg_replace('/\x{2013}|\x{2014}|\x{2018}|\x{2019}|\x{201C}|\x{201D}|\x{2022}|\x{2026}/u', '-', $message);
+    $message = preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/u', '', $message);
 
     $postData = json_encode([
         'source_addr' => $senderId,
-        'schedule_time' => '',
-        'encoding' => '0',
+        'encoding' => 0,
         'message' => $message,
         'recipients' => [
             ['recipient_id' => '1', 'dest_addr' => $phone]
@@ -43,10 +59,7 @@ function sendSms(string $phone, string $message): bool {
             'Authorization: Basic ' . base64_encode("$apiKey:$secretKey"),
         ],
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_TIMEOUT => 15,
     ]);
 
     $response = curl_exec($ch);
