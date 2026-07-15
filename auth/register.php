@@ -26,7 +26,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['error'] = 'Email already registered.';
         } else {
             $hashed = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $db->prepare("INSERT INTO users (name, email, phone, password, role) VALUES (?, ?, ?, ?, 'customer')");
+            require_once __DIR__ . '/../includes/beem.php';
+            $phone = formatSmsPhone($phone);
+            $stmt = $db->prepare("INSERT INTO users (name, email, phone, password, role, notify_sms) VALUES (?, ?, ?, ?, 'customer', 1)");
             $stmt->execute([$name, $email, $phone, $hashed]);
             $_SESSION['success'] = 'Registration successful! Please login.';
             header('Location: login.php');

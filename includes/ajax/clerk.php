@@ -193,7 +193,7 @@ try {
         } else {
             $isNewUser = true;
             $placeholderPassword = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
-            $stmt = $db->prepare("INSERT INTO users (name, email, password, role, clerk_id, profile_photo) VALUES (?, ?, ?, 'customer', ?, ?)");
+            $stmt = $db->prepare("INSERT INTO users (name, email, password, role, clerk_id, profile_photo, notify_sms) VALUES (?, ?, ?, 'customer', ?, ?, 1)");
             $stmt->execute([$fullName, $email, $placeholderPassword, $clerkId, $photoUrl]);
             $newId = $db->lastInsertId();
 

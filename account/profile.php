@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header('Location: profile.php');
                 exit;
             }
+            $phone = formatSmsPhone($phone);
         }
         $notifyEmail = isset($_POST['notify_email']) ? 1 : 0;
         $notifySms = isset($_POST['notify_sms']) ? 1 : 0;
