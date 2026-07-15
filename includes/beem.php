@@ -2,7 +2,7 @@
 
 function beemApiKey(): string { $v = getSetting('beem_api_key', ''); return $v ?: env('BEEM_API_KEY', ''); }
 function beemSecretKey(): string { $v = getSetting('beem_secret_key', ''); return $v ?: env('BEEM_SECRET_KEY', ''); }
-function beemSenderId(): string { $v = getSetting('beem_sender_id', ''); return $v ?: env('BEEM_SENDER_ID', 'CHILDAFYA'); }
+function beemSenderId(): string { $v = getSetting('beem_sender_id', ''); return $v ?: env('BEEM_SENDER_ID', 'CHILDPLUSTZ'); }
 
 function formatSmsPhone(string $phone): string {
     $phone = preg_replace('/\D+/', '', $phone);
