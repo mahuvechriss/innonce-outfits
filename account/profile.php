@@ -19,6 +19,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'update') {
         $name = trim($_POST['name'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
+        if ($phone !== '') {
+            require_once __DIR__ . '/../includes/beem.php';
+            if (!isValidTzPhone($phone)) {
+                $_SESSION['error'] = 'Invalid phone format. Use 0712 345 678 or +255 712 345 678.';
+                header('Location: profile.php');
+                exit;
+            }
+        }
         $notifyEmail = isset($_POST['notify_email']) ? 1 : 0;
         $notifySms = isset($_POST['notify_sms']) ? 1 : 0;
         $notifyInapp = isset($_POST['notify_inapp']) ? 1 : 0;
@@ -120,7 +128,7 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                         <div class="col-md-6">
                             <label class="form-label"><i class="fas fa-phone me-1"></i><?= __('phone') ?></label>
-                            <input type="tel" name="phone" class="form-control" value="<?= escape($user['phone'] ?? '') ?>">
+                            <input type="tel" name="phone" class="form-control" value="<?= escape($user['phone'] ?? '') ?>" pattern="[\+\d\s\-]{9,15}" title="Tanzanian phone: 0712 345 678 or +255 712 345 678" placeholder="0712 345 678">
                         </div>
                     </div>
                     <button type="submit" class="btn btn-gold mt-3"><i class="fas fa-save me-2"></i><?= __('save_changes') ?></button>
