@@ -59,6 +59,11 @@ function notifyOrderUpdate(int $orderId, string $status, string $description): v
     $order = $stmt->fetch();
     if (!$order) return;
 
+    // Notify assigned worker
+    if (!empty($order['worker_id'])) {
+        $db->prepare("INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'order')")->execute([$order['worker_id'], "Order #{$order['order_number']}", $description ?: "Status updated to $status"]);
+    }
+
     $title = "Order #{$order['order_number']}";
     $message = $description ?: "Status updated to $status";
 

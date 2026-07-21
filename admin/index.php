@@ -279,17 +279,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($actionPost === 'worker_assign') {
         $workerId = !empty($_POST['worker_id']) ? (int)$_POST['worker_id'] : null;
-        $orderSt = $db->prepare("SELECT status FROM orders WHERE id = ?");
+        $orderSt = $db->prepare("SELECT order_number, status FROM orders WHERE id = ?");
         $orderSt->execute([$id]);
-        $orderStatus = $orderSt->fetchColumn() ?: '';
+        $orderRow = $orderSt->fetch();
+        $orderNumber = $orderRow ? $orderRow['order_number'] : '';
+        $orderStatus = $orderRow ? $orderRow['status'] : '';
         $db->prepare("UPDATE orders SET worker_id = ? WHERE id = ?")->execute([$workerId, $id]);
         if ($workerId) {
             $stmt = $db->prepare("SELECT name FROM users WHERE id = ?");
             $stmt->execute([$workerId]);
             $workerName = $stmt->fetchColumn() ?: 'Worker';
             $description = "Assigned to worker: $workerName";
+            $db->prepare("INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'order')")->execute([$workerId, "New Order #$orderNumber", "You have been assigned order #$orderNumber."]);
         } else {
             $description = 'Worker unassigned.';
+            if (!empty($orderRow['worker_id'])) {
+                $db->prepare("INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'order')")->execute([$orderRow['worker_id'], "Order #$orderNumber Unassigned", "Order #$orderNumber has been unassigned from you."]);
+            }
         }
         require_once __DIR__ . '/../includes/notifications.php';
         notifyOrderUpdate($id, $orderStatus, $description);
@@ -1313,7 +1319,7 @@ switch ($action) {
                         <p><strong>Status:</strong> <span class="badge bg-<?= $order['status'] === 'delivered' ? 'success' : 'secondary' ?>"><?= ucfirst($order['status']) ?></span></p>
                         <p><strong>Payment:</strong> <?= ucwords(str_replace('_', ' ', $order['payment_method'])) ?> - <span class="text-<?= $order['payment_status'] === 'paid' ? 'success' : 'warning' ?>"><?= $order['payment_status'] ?></span></p>
                         <p><strong>Placed:</strong> <?= date('M d, Y H:i', strtotime($order['created_at'])) ?></p>
-                        <p><strong>Delivery:</strong> <?= ($order['delivery_method'] ?? 'delivery') === 'pickup' ? 'Pick up at shop' : 'Delivery' ?></p>
+                        <p><strong>Delivery:</strong> <?= ($order['delivery_method'] ?? 'delivery') === 'pickup' ? 'Pick up at shop' : escape(($address['street'] ?? '') . ', ' . ($address['city'] ?? '') . ', ' . ($address['region'] ?? '')) ?></p>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -1328,11 +1334,26 @@ switch ($action) {
                         <h6 class="fw-600">Assign Worker</h6>
                         <form method="POST" class="d-flex gap-2"><?= csrf() ?><input type="hidden" name="admin_action" value="worker_assign">
                             <input type="hidden" name="id" value="<?= $order['id'] ?>">
-                            <select name="worker_id" class="form-select">
+                            <select name="worker_id" class="form-select" style="max-width:220px;">
                                 <option value="">— None —</option>
                                 <?php $workers = $db->query("SELECT id, name FROM users WHERE role='worker' ORDER BY name")->fetchAll(); ?>
-                                <?php foreach ($workers as $w): ?>
-                                <option value="<?= $w['id'] ?>" <?= $order['worker_id'] == $w['id'] ? 'selected' : '' ?>><?= escape($w['name']) ?></option>
+                                <?php foreach ($workers as $w):
+                                    $locW = $db->prepare("SELECT * FROM worker_locations WHERE worker_id = ?");
+                                    $locW->execute([$w['id']]);
+                                    $locWData = $locW->fetch();
+                                    $isOnlineW = $locWData && strtotime($locWData['updated_at']) > time() - 120;
+                                    $distFromShop = $locWData ? distanceKm(SHOP_LAT, SHOP_LNG, $locWData['latitude'], $locWData['longitude']) : null;
+                                    $label = escape($w['name']);
+                                    if ($locWData) {
+                                        $label .= ' [' . ($isOnlineW ? 'ON' : 'OFF') . ']';
+                                        if ($distFromShop !== null) {
+                                            $label .= ' ' . ($distFromShop < 1 ? number_format($distFromShop * 1000, 0) . 'm' : number_format($distFromShop, 1) . 'km') . ' fr shop';
+                                        }
+                                    } else {
+                                        $label .= ' [no GPS]';
+                                    }
+                                ?>
+                                <option value="<?= $w['id'] ?>" <?= $order['worker_id'] == $w['id'] ? 'selected' : '' ?>><?= $label ?></option>
                                 <?php endforeach; ?>
                             </select>
                             <button type="submit" class="btn-gold-sm">Assign</button>
@@ -1571,6 +1592,10 @@ switch ($action) {
         <?php if ($workers): ?>
         <div class="row g-3">
             <?php foreach ($workers as $w):
+                $locSt = $db->prepare("SELECT * FROM worker_locations WHERE worker_id = ?");
+                $locSt->execute([$w['id']]);
+                $loc = $locSt->fetch();
+                $isOnline = $loc && strtotime($loc['updated_at']) > time() - 120;
                 $assigned = $db->prepare("SELECT o.*, u.name as customer_name, u.phone as customer_phone FROM orders o LEFT JOIN users u ON o.user_id = u.id WHERE o.worker_id = ? AND o.status != 'delivered' ORDER BY o.created_at DESC");
                 $assigned->execute([$w['id']]);
                 $assignedOrders = $assigned->fetchAll();
@@ -1579,11 +1604,23 @@ switch ($action) {
                 <div class="border p-3 h-100">
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <h6 class="fw-700 mb-0"><i class="fas fa-user-cog me-2 text-gold"></i><?= escape($w['name']) ?></h6>
-                        <small class="text-muted">#<?= $w['id'] ?></small>
+                        <div class="text-end">
+                            <?php if ($loc): ?>
+                            <span class="badge bg-<?= $isOnline ? 'success' : 'secondary' ?>"><?= $isOnline ? 'Live' : 'Offline' ?></span>
+                            <?php endif; ?>
+                            <small class="text-muted d-block">#<?= $w['id'] ?></small>
+                        </div>
                     </div>
                     <p class="small text-muted mb-2">
                         <i class="fas fa-envelope me-1"></i><?= escape($w['email']) ?><br>
                         <i class="fas fa-phone me-1"></i><?= escape($w['phone'] ?: '-') ?>
+                        <?php if ($loc):
+                            $shopDist = distanceKm(SHOP_LAT, SHOP_LNG, $loc['latitude'], $loc['longitude']);
+                        ?>
+                        <br><i class="fas fa-map-pin me-1"></i><?= number_format($loc['latitude'], 4) ?>, <?= number_format($loc['longitude'], 4) ?>
+                        <br><i class="fas fa-store me-1"></i><?= $shopDist < 1 ? number_format($shopDist * 1000, 0) . ' m' : number_format($shopDist, 1) . ' km' ?> from shop
+                        <small class="text-muted d-block">(<?= date('M d, H:i', strtotime($loc['updated_at'])) ?>)</small>
+                        <?php endif; ?>
                     </p>
                     <?php if ($assignedOrders): ?>
                     <hr>
@@ -1592,17 +1629,26 @@ switch ($action) {
                     <div class="border-start border-3 border-gold ps-2 mb-2 small">
                         <div class="fw-600">#<?= escape($o['order_number']) ?> — <?= escape($o['customer_name'] ?: 'User #' . $o['user_id']) ?></div>
                         <div><i class="fas fa-phone me-1"></i><?= escape($o['customer_phone'] ?: $o['phone'] ?: '-') ?></div>
-                        <div><span class="badge bg-secondary"><?= ucfirst($o['status']) ?></span>
-                        <?php if ($o['delivery_method'] === 'delivery' && $o['latitude'] && $o['longitude']): ?>
-                            <?php $dist = distanceKm(SHOP_LAT, SHOP_LNG, $o['latitude'], $o['longitude']); ?>
-                            <span class="text-muted"><i class="fas fa-road ms-1"></i> <?= number_format($dist, 1) ?> km</span>
-                            <a href="https://www.google.com/maps/dir/?api=1&origin=<?= SHOP_LAT ?>,<?= SHOP_LNG ?>&destination=<?= $o['latitude'] ?>,<?= $o['longitude'] ?>" target="_blank" class="btn btn-sm btn-outline-success mt-1"><i class="fas fa-route me-1"></i>Track</a>
-                        <?php endif; ?>
+                        <div>
+                            <span class="badge bg-secondary"><?= ucfirst($o['status']) ?></span>
+                            <?php if ($loc && $o['delivery_method'] === 'delivery' && $o['latitude'] && $o['longitude']): ?>
+                                <?php $wDist = distanceKm($loc['latitude'], $loc['longitude'], $o['latitude'], $o['longitude']); ?>
+                                <span class="text-<?= $wDist < 1 ? 'success' : ($wDist < 5 ? 'warning' : 'danger') ?> fw-600"><i class="fas fa-road ms-1"></i> <?= $wDist < 1 ? number_format($wDist * 1000, 0) . ' m' : number_format($wDist, 1) . ' km' ?></span>
+                                <a href="https://www.google.com/maps/dir/?api=1&origin=<?= $loc['latitude'] ?>,<?= $loc['longitude'] ?>&destination=<?= $o['latitude'] ?>,<?= $o['longitude'] ?>" target="_blank" class="btn btn-sm btn-outline-success mt-1"><i class="fas fa-route me-1"></i>Track</a>
+                            <?php elseif ($o['delivery_method'] === 'delivery' && $o['latitude'] && $o['longitude']): ?>
+                                <span class="text-muted"><i class="fas fa-hourglass ms-1"></i> Waiting for worker location...</span>
+                                <a href="https://www.google.com/maps/dir/?api=1&destination=<?= $o['latitude'] ?>,<?= $o['longitude'] ?>" target="_blank" class="btn btn-sm btn-outline-success mt-1"><i class="fas fa-route me-1"></i>Track</a>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <?php endforeach; ?>
                     <?php else: ?>
                     <p class="text-muted small mb-0">No active assignments.</p>
+                    <?php endif; ?>
+                    <?php if (!$loc): ?>
+                    <hr>
+                    <p class="text-muted small mb-0"><i class="fas fa-store me-1"></i>Shop → ? km <span class="text-muted">(no GPS)</span></p>
+                    <p class="text-muted small mb-0"><i class="fas fa-map-marker-alt me-1"></i>Worker needs to open their orders page.</p>
                     <?php endif; ?>
                 </div>
             </div>
