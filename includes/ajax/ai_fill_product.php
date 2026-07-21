@@ -216,61 +216,6 @@ function callGroq($imageData, $catList, $colorList, &$err = ''): ?array {
     return parseAIResponse($text);
 }
 
-function callDeepSeek($imageData, $catList, $colorList, &$err = ''): ?array {
-    $apiKey = DEEPSEEK_API_KEY;
-    if (!$apiKey) { $err = 'DEEPSEEK_API_KEY not set in .env'; return null; }
-
-    $systemPrompt = buildSystemPrompt($catList, $colorList);
-    $payload = [
-        'model' => DEEPSEEK_MODEL,
-        'messages' => [
-            ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => [
-                ['type' => 'text', 'text' => 'Analyze this fashion product image and provide complete product details.'],
-                ['type' => 'image_url', 'image_url' => ['url' => $imageData]],
-            ]],
-        ],
-        'max_tokens' => 1000,
-        'temperature' => 0.3,
-    ];
-
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => DEEPSEEK_ENDPOINT,
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey,
-        ],
-        CURLOPT_POSTFIELDS => json_encode($payload),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
-        CURLOPT_SSL_VERIFYPEER => true,
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlErr = curl_error($ch);
-    curl_close($ch);
-
-    if (!$response) {
-        $err = "DeepSeek curl error: $curlErr";
-        return null;
-    }
-
-    if ($httpCode !== 200) {
-        $body = json_decode($response, true);
-        $msg = $body['error']['message'] ?? $response;
-        $err = "DeepSeek HTTP $httpCode: $msg";
-        return null;
-    }
-
-    $data = json_decode($response, true);
-    $text = $data['choices'][0]['message']['content'] ?? '';
-    if (!$text) { $err = 'DeepSeek returned empty response'; return null; }
-
-    return parseAIResponse($text);
-}
-
 function callOpenRouter($imageData, $catList, $colorList, $model, &$err = ''): ?array {
     $apiKey = AI_FALLBACK_KEY;
     if (!$apiKey) { $err = 'AI_FALLBACK_KEY not set'; return null; }
@@ -343,7 +288,7 @@ if ($result) {
 
 // Try Gemini models in order (different models may have separate free quotas)
 if (!$result) {
-    $geminiModels = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+    $geminiModels = ['gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
     foreach ($geminiModels as $model) {
         $err = '';
         $result = callGemini($imageData, $catList, $colorList, $model, $err);
@@ -357,7 +302,7 @@ if (!$result) {
 
 // Fallback to OpenRouter models (daily refresh)
 if (!$result) {
-    $orModels = [AI_FALLBACK_MODEL, 'meta-llama/llama-4-scout-17b-16e-instruct', 'google/gemma-3-27b-it'];
+    $orModels = [AI_FALLBACK_MODEL, 'meta-llama/llama-4-scout-17b-16e-instruct', 'google/gemma-3-27b-it', 'qwen/qwen3.6-27b'];
     $orModels = array_unique($orModels);
     foreach ($orModels as $model) {
         $err = '';
@@ -367,17 +312,6 @@ if (!$result) {
             break;
         }
         $errors[] = "OpenRouter $model: $err";
-    }
-}
-
-// Try DeepSeek last (one-time credits, no daily refresh)
-if (!$result) {
-    $err = '';
-    $result = callDeepSeek($imageData, $catList, $colorList, $err);
-    if ($result) {
-        $used = 'deepseek/' . DEEPSEEK_MODEL;
-    } else {
-        $errors[] = "DeepSeek: $err";
     }
 }
 

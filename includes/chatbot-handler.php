@@ -31,8 +31,11 @@ $totalProducts = $db->query("SELECT COUNT(*) FROM products WHERE status='active'
 $totalCategories = $db->query("SELECT COUNT(*) FROM categories WHERE status=1")->fetchColumn();
 $allCategories = $db->query("SELECT name_en, name_sw FROM categories WHERE status=1")->fetchAll();
 $catList = implode(', ', array_map(function($c) { return $c['name_en'] . ($c['name_sw'] ? '/' . $c['name_sw'] : ''); }, $allCategories));
+$catEnList = implode(', ', array_column($allCategories, 'name_en'));
 $pal = colorPalette();
 $colorList = implode(', ', array_keys($pal));
+$colorNames = colorNames();
+$colorSwahiliList = implode(', ', array_map(function($c) { return $c['en'] . ' (' . $c['sw'] . ')'; }, $colorNames));
 
 $storeInfo = "- $totalProducts products across $totalCategories categories
 - Currency: $currency (Tax: $taxRate%)
@@ -50,28 +53,16 @@ $storeInfo = "- $totalProducts products across $totalCategories categories
 $model = defined('AI_FALLBACK_MODEL') ? AI_FALLBACK_MODEL : 'openai/gpt-4o-mini';
 $aiData = null;
 
-// --- Step 1: AI determines intent ---
-$intentPrompt = "You are INNOCEshow, a helpful fashion store assistant for $siteName.
-
-Store info:
-$storeInfo
-
-Analyze intent. Respond ONLY with valid JSON:
-{
-  \"intent\": \"product_search\" or \"conversation\",
-  \"filters\": {
-    \"category\": \"category name or null\",
-    \"color\": \"color name or null\",
-    \"max_price\": number or null,
-    \"keywords\": \"search keywords or null\"
-  },
-  \"needs_math\": true or false (true if user asks about quantities, totals, sums, multiplication, \"how much for X items\", \"jumla\")
+function callAI(array $payload, int $timeout = 15): ?string {
+    // Try OpenRouter first
+    $response = tryOpenRouter($payload, $timeout);
+    if ($response !== null) return $response;
+    // Fallback to Groq
+    return tryGroq($payload, $timeout);
 }
 
-product_search = user wants to SEE, FIND, BROWSE, CALCULATE about products, prices, stock, catalog, or asks ANY of: \"what do you sell\", \"what is available\", \"what products do you have\", \"what do you have\", \"show me everything\", \"kuna nini\", \"mnauza nini\", \"what do you offer\", \"catalog\", \"inventory\", \"products\".
-conversation = ONLY pure greetings (\"hi\", \"hello\"), identity (\"who are you\", \"your name\"), thanks, or truly unrelated topic (weather, news, sports).";
-
-try {
+function tryOpenRouter(array $payload, int $timeout): ?string {
+    if (empty(AI_FALLBACK_KEY)) return null;
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL => AI_FALLBACK_ENDPOINT,
@@ -82,34 +73,103 @@ try {
             'HTTP-Referer: ' . SITE_URL,
             'X-Title: Innocé Outfits',
         ],
-        CURLOPT_POSTFIELDS => json_encode([
-            'model' => $model,
-            'messages' => [
-                ['role' => 'system', 'content' => $intentPrompt],
-                ['role' => 'user', 'content' => "User: \"$message\""],
-            ],
-            'max_tokens' => 300,
-            'temperature' => 0.3,
-        ]),
+        CURLOPT_POSTFIELDS => json_encode($payload),
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 15,
+        CURLOPT_TIMEOUT => $timeout,
         CURLOPT_SSL_VERIFYPEER => true,
     ]);
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-
     if ($response && $httpCode === 200) {
         $data = json_decode($response, true);
-        $content = $data['choices'][0]['message']['content'] ?? '';
+        return $data['choices'][0]['message']['content'] ?? null;
+    }
+    return null;
+}
+
+function tryGroq(array $payload, int $timeout): ?string {
+    if (empty(GROQ_API_KEY)) return null;
+    $groqPayload = $payload;
+    $groqPayload['model'] = GROQ_MODEL;
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => GROQ_ENDPOINT,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . GROQ_API_KEY,
+        ],
+        CURLOPT_POSTFIELDS => json_encode($groqPayload),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($response && $httpCode === 200) {
+        $data = json_decode($response, true);
+        return $data['choices'][0]['message']['content'] ?? null;
+    }
+    return null;
+}
+
+// --- Step 1: AI determines intent ---
+$intentPrompt = "You are INNOCEshow, a helpful fashion store assistant for $siteName.
+
+Store info:
+$storeInfo
+
+Available categories (English names only): $catEnList
+Available colors (English / Swahili): $colorSwahiliList
+
+Analyze intent. Respond ONLY with valid JSON. When setting category or color in filters, use EXACTLY the English name from the lists above — do NOT include Swahili.
+
+IMPORTANT: Users may ask in Swahili. Map Swahili words to English. For example:
+- \"koti\" → category=\"Coat\"
+- \"nyekundu\" → color=\"Red\"
+- \"nguo\" means \"clothes\" → product_search
+- \"bidhaa\" means \"products\" → product_search
+
+{
+  \"intent\": \"product_search\" or \"conversation\",
+  \"filters\": {
+    \"category\": \"exact English category name from the list above, or null if none mentioned\",
+    \"color\": \"exact English color name from the list above, or null if none mentioned\",
+    \"max_price\": number or null,
+    \"keywords\": \"search keywords in their original language (keep Swahili if user wrote Swahili), or null\"
+  },
+  \"needs_math\": true or false (true if user asks about quantities, totals, sums, multiplication, \"how much for X items\", \"jumla\")
+}
+
+CRITICAL — category matching: Match ONLY against the English category names listed above.
+- If the user mentions a clothing item in ANY language (e.g., \"coats\", \"koti\", \"dresses\", \"magauni\", \"shirts\", \"fulana\", \"trousers\", \"suruali\", \"jackets\", \"jaketi\", \"sweaters\", \"masweta\"), check if it matches a category. If yes, set category to the exact English name.
+- If the user says a specific product name (e.g., \"fur collar coat\"), set it as keywords, NOT category.
+
+product_search = user mentions clothing, products, shopping, prices, categories, colors, or ANY item they want to buy/find.
+conversation = ONLY pure greetings, identity, thanks, or truly unrelated topic.";
+
+try {
+    $payload = [
+        'model' => $model,
+        'messages' => [
+            ['role' => 'system', 'content' => $intentPrompt],
+            ['role' => 'user', 'content' => "User: \"$message\""],
+        ],
+        'max_tokens' => 300,
+        'temperature' => 0.3,
+    ];
+    $content = callAI($payload, 15);
+    if ($content) {
         $aiData = json_decode($content, true);
     }
 } catch (Exception $e) {
-    error_log("OpenRouter intent call failed: " . $e->getMessage());
+    error_log("AI intent call failed: " . $e->getMessage());
 }
 
 // Force product_search for explicit product inquiries (backup for AI misclassification)
-$productKeywords = ['sell', 'offer', 'available', 'catalog', 'inventory', 'products', 'stock', 'bidhaa', 'what do you have', 'what is there', 'show everything', 'kuna nini', 'mnauza nini', 'orodha'];
+$productKeywords = ['sell', 'offer', 'available', 'catalog', 'inventory', 'products', 'stock', 'bidhaa', 'what do you have', 'what is there', 'show everything', 'kuna nini', 'mnauza nini', 'orodha', 'nguo', 'mavazi', 'gauni', 'shati', 'suruali', 'koti', 'viatu', 'bei', 'gharama', 'pesa', 'taka', 'nataka', 'nunua', 'kununua', 'tafuta', 'kuna', 'aina'];
 if ($aiData && $aiData['intent'] === 'conversation') {
     $lower = strtolower($message);
     foreach ($productKeywords as $kw) {
@@ -119,6 +179,33 @@ if ($aiData && $aiData['intent'] === 'conversation') {
             break;
         }
     }
+}
+
+// Fallback: if AI didn't extract a category but user mentioned one, match it
+if ($aiData && $aiData['intent'] === 'product_search') {
+    $lowerMsg = strtolower($message);
+    $catFilters = $aiData['filters'] ?? [];
+    $hasFilter = !empty($catFilters['category']) || !empty($catFilters['keywords']);
+    if (!$hasFilter) {
+        foreach ($allCategories as $cat) {
+            $catEn = strtolower($cat['name_en']);
+            $catSw = strtolower($cat['name_sw'] ?? '');
+            $catWords = explode(' ', $catEn);
+            foreach ($catWords as $word) {
+                if (strlen($word) > 2 && strpos($lowerMsg, $word) !== false) {
+                    $catFilters['category'] = $cat['name_en'];
+                    $hasFilter = true;
+                    break 2;
+                }
+            }
+            if ($catSw && strpos($lowerMsg, $catSw) !== false) {
+                $catFilters['category'] = $cat['name_en'];
+                $hasFilter = true;
+                break;
+            }
+        }
+    }
+    $aiData['filters'] = $catFilters;
 }
 
 // --- Step 2: Search products if needed ---
@@ -148,8 +235,16 @@ if ($aiData && $aiData['intent'] === 'product_search' && isset($aiData['filters'
     }
 
     if (!empty($f['color']) && $f['color'] !== 'null') {
+        // Map Swahili/any-language color name to English
+        $colorVal = strtolower($f['color']);
+        foreach ($colorNames as $en => $names) {
+            if (strtolower($names['en']) === $colorVal || strtolower($names['sw']) === $colorVal) {
+                $colorVal = strtolower($names['en']);
+                break;
+            }
+        }
         $conditions[] = "JSON_SEARCH(LOWER(p.colors), 'one', ?) IS NOT NULL";
-        $params[] = strtolower($f['color']);
+        $params[] = $colorVal;
     }
 
     if (!empty($f['max_price']) && $f['max_price'] > 0) {
@@ -157,7 +252,9 @@ if ($aiData && $aiData['intent'] === 'product_search' && isset($aiData['filters'
         $params[] = (float) $f['max_price'];
     }
 
-    $keywords = trim($f['keywords'] ?? '');
+    // Skip keyword search if a specific filter is already set (avoids language mismatch killing results)
+    $hasSpecificFilter = !empty($f['category']) || !empty($f['color']) || (!empty($f['max_price']) && $f['max_price'] > 0);
+    $keywords = $hasSpecificFilter ? '' : trim($f['keywords'] ?? '');
     if ($keywords && $keywords !== 'null') {
         $terms = explode(' ', $keywords);
         $kwConditions = [];
@@ -237,43 +334,26 @@ Instructions:
 4. If the user asked about delivery cost, include the shipping fee in the total.
 5. NEVER make up product names or prices. Use ONLY the data above.
 6. DO NOT include product page URLs — product cards are shown separately instead.
-7. For location: paste the Google Maps URL directly as a raw link (no markdown brackets).
-8. For contact: include the WhatsApp number.";
+7. Only if the user specifically asks for location/directions: provide the Google Maps URL.
+8. Only if the user specifically asks for contact info: provide the WhatsApp number.
+9. Do NOT mention location, Google Maps, or WhatsApp unless the user asks.";
 
     try {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => AI_FALLBACK_ENDPOINT,
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . AI_FALLBACK_KEY,
-                'HTTP-Referer: ' . SITE_URL,
-                'X-Title: Innocé Outfits',
+        $payload = [
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $replyPrompt],
+                ['role' => 'user', 'content' => "Answer based on the product data provided."],
             ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $model,
-                'messages' => [
-                    ['role' => 'system', 'content' => $replyPrompt],
-                    ['role' => 'user', 'content' => "Answer based on the product data provided."],
-                ],
-                'max_tokens' => 500,
-                'temperature' => 0.7,
-            ]),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_SSL_VERIFYPEER => true,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response && $httpCode === 200) {
-            $data = json_decode($response, true);
-            $reply = $data['choices'][0]['message']['content'] ?? '';
+            'max_tokens' => 500,
+            'temperature' => 0.7,
+        ];
+        $replyText = callAI($payload, 15);
+        if ($replyText) {
+            $reply = $replyText;
         }
     } catch (Exception $e) {
-        error_log("OpenRouter reply call failed: " . $e->getMessage());
+        error_log("AI reply call failed: " . $e->getMessage());
     }
 
     if (!$reply) {
@@ -296,41 +376,21 @@ Instructions:
 - Website: " . SITE_URL . "
 - Shipping: $shipRateDefault% of subtotal if under $shipThreshold $currency, $shipRateReduced% if over. Free above $freeShipMin $currency. Pickup = free.
 Be friendly and concise. $langInstruction Always use the user's selected language even if they write in another language — only switch if they explicitly ask to change language.
-For location: paste the Google Maps URL directly as a raw link.
-For contact: include the WhatsApp number.";
+Do NOT mention location, Google Maps, or WhatsApp unless the user specifically asks about them.";
 
     try {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => AI_FALLBACK_ENDPOINT,
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . AI_FALLBACK_KEY,
-                'HTTP-Referer: ' . SITE_URL,
-                'X-Title: Innocé Outfits',
+        $payload = [
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $convPrompt],
+                ['role' => 'user', 'content' => $message],
             ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $model,
-                'messages' => [
-                    ['role' => 'system', 'content' => $convPrompt],
-                    ['role' => 'user', 'content' => $message],
-                ],
-                'max_tokens' => 200,
-                'temperature' => 0.7,
-            ]),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => true,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response && $httpCode === 200) {
-            $data = json_decode($response, true);
-            $fallbackReply = $chatLang === 'sw' ? "Habari! Nikusaidie nini leo?" : "Hello! How can I help you today?";
-            $reply = $data['choices'][0]['message']['content'] ?? $fallbackReply;
+            'max_tokens' => 200,
+            'temperature' => 0.7,
+        ];
+        $replyText = callAI($payload, 10);
+        if ($replyText) {
+            $reply = $replyText;
         } else {
             $reply = $chatLang === 'sw' ? "Habari! Nikusaidie nini leo?" : "Hello! How can I help you today?";
         }

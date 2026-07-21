@@ -128,6 +128,7 @@ body {
   background-size: 200% auto;
   color: #000;
   border: none;
+  text-decoration: none;
   border-radius: 8px;
   font-weight: 700;
   padding: 0.4rem 1.2rem;
@@ -817,7 +818,7 @@ textarea.form-control {
 }
 .price-old {
   font-size: 0.9rem;
-  color: #aaa;
+  color: #D42426;
   text-decoration: line-through;
   margin-left: 0.5rem;
 }
@@ -1849,6 +1850,8 @@ textarea.form-control {
 .navbar .btn-gold-sm {
   font-size: 0.75rem;
   padding: 0.25rem 0.8rem;
+  color: #000 !important;
+  text-decoration: none !important;
 }
 .navbar .btn-link.text-dark, .navbar a.text-dark {
   color: var(--text-on-orange) !important;
@@ -2354,4 +2357,75 @@ footer.bg-dark {
   .stat-card { padding: 1rem; }
   .stat-card .stat-value { font-size: 1.25rem; }
   .hero h1 { font-size: 2.2rem; }
+}
+
+/* ===== ADMIN THEME MANAGEMENT ===== */
+.theme-card {
+  transition: all 0.3s ease;
+}
+.theme-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+.admin-sidebar .nav-link .fa-palette {
+  font-size: 0.95rem;
+}
+.accordion-item {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+.accordion-button {
+  background: var(--bg-section-alt);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.accordion-button:not(.collapsed) {
+  background: var(--bg-section-alt);
+  color: var(--text-primary);
+}
+.accordion-button::after {
+  background-size: 12px;
+}
+.form-control-color {
+  cursor: pointer;
+}
+
+/* ===== THEME DECORATIONS ===== */
+.theme-badge {
+  position: sticky;
+  top: 0;
+  z-index: 10000;
+  background: linear-gradient(135deg, var(--orange, #FF8C00), var(--orange-dark, #CC7000));
+  color: #fff;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: badgeSlideDown 0.5s ease-out;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
+.theme-badge .btn-close {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  filter: brightness(0) invert(1);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.theme-badge .btn-close:hover {
+  opacity: 1;
+}
+@keyframes badgeSlideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+[data-theme="dark"] .theme-badge {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
 }

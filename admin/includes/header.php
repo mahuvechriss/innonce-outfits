@@ -20,6 +20,8 @@ $unreadNotifs = getUnreadNotificationCount($_SESSION['user_id']);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= SITE_URL ?>/assets/css/style.css">
+    <?= renderThemeCss() ?>
+    <?= renderThemeDecorations() ?>
 </head>
 <body class="bg-light admin-page">
 <nav class="navbar navbar-expand-lg bg-dark navbar-dark">
@@ -62,9 +64,11 @@ $unreadNotifs = getUnreadNotificationCount($_SESSION['user_id']);
                 <a class="nav-link text-white-50 <?= $action === 'reviews' ? 'text-white fw-600' : '' ?>" href="index.php?action=reviews"><i class="fas fa-star me-2"></i><?= __t('reviews') ?><?php if ($pendingReviews): ?><span class="badge bg-warning text-dark ms-auto"><?= $pendingReviews ?></span><?php endif; ?></a>
                 <a class="nav-link text-white-50 <?= $action === 'contacts' ? 'text-white fw-600' : '' ?>" href="index.php?action=contacts"><i class="fas fa-envelope me-2"></i><?= __t('messages') ?><?php if ($unreadMessages): ?><span class="badge bg-danger ms-auto"><?= $unreadMessages ?></span><?php endif; ?></a>
                 <a class="nav-link text-white-50 <?= $action === 'customers' ? 'text-white fw-600' : '' ?>" href="index.php?action=customers"><i class="fas fa-users me-2"></i><?= __t('customers') ?><?php if ($onlineCustomers): ?><span class="badge bg-success ms-auto"><?= $onlineCustomers ?> <?= __t('online') ?></span><?php endif; ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'workers' ? 'text-white fw-600' : '' ?>" href="index.php?action=workers"><i class="fas fa-user-cog me-2"></i><?= __t('workers') ?></a>
                 <a class="nav-link text-white-50 <?= $action === 'reports' ? 'text-white fw-600' : '' ?>" href="index.php?action=reports"><i class="fas fa-chart-bar me-2"></i><?= __t('reports') ?></a>
                 <a class="nav-link text-white-50 <?= $action === 'notifications' ? 'text-white fw-600' : '' ?>" href="index.php?action=notifications"><i class="fas fa-bell me-2"></i><?= __t('notifications') ?><?php if ($unreadNotifs): ?><span class="badge bg-danger ms-auto"><?= $unreadNotifs ?></span><?php endif; ?></a>
                 <a class="nav-link text-white-50 <?= $action === 'broadcast' ? 'text-white fw-600' : '' ?>" href="index.php?action=broadcast"><i class="fas fa-bullhorn me-2"></i><?= __t('broadcast') ?></a>
+                <a class="nav-link text-white-50 <?= $action === 'themes' ? 'text-white fw-600' : '' ?>" href="index.php?action=themes"><i class="fas fa-palette me-2"></i><?= __t('themes') ?></a>
                 <a class="nav-link text-white-50 <?= $action === 'settings' ? 'text-white fw-600' : '' ?>" href="index.php?action=settings"><i class="fas fa-cog me-2"></i><?= __t('settings') ?></a>
                 <hr class="border-secondary my-2">
                 <a class="nav-link text-white-50 <?= $action === 'profile' ? 'text-white fw-600' : '' ?>" href="index.php?action=profile"><i class="fas fa-user me-2"></i><?= __t('profile') ?></a>

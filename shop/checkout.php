@@ -1,7 +1,10 @@
 <?php
 require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../includes/azampay.php';
 require_once __DIR__ . '/../includes/beem.php';
+require_once __DIR__ . '/../includes/pawapay.php';
+require_once __DIR__ . '/../includes/stakaba.php';
+$defaultPayment = getSetting('default_payment', 'pawapay');
+$stakabaKey = stakabaApiKey();
 requireLogin();
 $pageTitle = 'Checkout';
 
@@ -51,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $region = trim($_POST['region'] ?? '');
     $city = trim($_POST['city'] ?? '');
     $street = trim($_POST['street'] ?? '');
-    $paymentMethod = $_POST['payment_method'] ?? 'mpesa';
+    $paymentMethod = $_POST['payment_method'] ?? $defaultPayment;
 
     if (empty($name) || empty($email) || empty($phone) || empty($city) || empty($street)) {
         $_SESSION['error'] = 'Please fill in all required fields.';
@@ -59,7 +62,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    require_once __DIR__ . '/../includes/beem.php';
     if (!isValidTzPhone($phone)) {
         $_SESSION['error'] = 'Enter a valid phone number (e.g. 0712 345 678 or +255 712 345 678).';
         header('Location: checkout.php');
@@ -71,11 +73,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $orderNumber = generateOrderNumber();
         $shippingAddress = json_encode(['country' => $country, 'region' => $region, 'city' => $city, 'street' => $street]);
+        $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
+        $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
         $couponCode = $_SESSION['coupon']['code'] ?? null;
         $couponDiscount = $discount;
 
-        $stmt = $db->prepare("INSERT INTO orders (user_id, customer_name, customer_phone, order_number, status, subtotal, tax, shipping, delivery_method, discount, volume_discount, total, payment_method, payment_status, currency, shipping_address, coupon_code, coupon_discount) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', 'TZS', ?, ?, ?)");
-        $stmt->execute([$userId, $name, $phone, $orderNumber, $subtotal, $tax, $shipping, $deliveryMethod, $discount, $volumeDiscount, $total, $paymentMethod, $shippingAddress, $couponCode, $couponDiscount]);
+        $stmt = $db->prepare("INSERT INTO orders (user_id, customer_name, customer_phone, order_number, status, subtotal, tax, shipping, delivery_method, discount, volume_discount, total, payment_method, payment_status, currency, shipping_address, latitude, longitude, coupon_code, coupon_discount) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', 'TZS', ?, ?, ?, ?, ?)");
+        $stmt->execute([$userId, $name, $phone, $orderNumber, $subtotal, $tax, $shipping, $deliveryMethod, $discount, $volumeDiscount, $total, $paymentMethod, $shippingAddress, $latitude, $longitude, $couponCode, $couponDiscount]);
         $orderId = $db->lastInsertId();
 
         foreach ($items as $item) {
@@ -99,33 +103,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->commit();
 
         // Initiate payment
-        if ($paymentMethod === 'beem') {
-            $txnId = bin2hex(random_bytes(16));
-            $txnId = substr($txnId, 0, 8) . '-' . substr($txnId, 8, 4) . '-4' . substr($txnId, 12, 3) . '-' . dechex(hexdec(substr($txnId, 15, 4)) & 0x3fff | 0x8000) . '-' . substr($txnId, 19, 12);
-            $beemResult = beemInitiatePayment($total, $phone, $ref, $txnId);
+        if ($paymentMethod === 'stakaba') {
+            $skResult = stakabaCheckout($total, $orderNumber, $orderId, $email, $phone, $name);
 
-            if ($beemResult['success']) {
+            if ($skResult['success']) {
                 $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
-                    ->execute([$beemResult['transaction_id'], json_encode($beemResult['raw']), $ref]);
-                $_SESSION['beem_checkout_url'] = $beemResult['checkout_url'];
-                $_SESSION['beem_order_number'] = $orderNumber;
-                header("Location: " . SITE_URL . "/payment/beem_redirect.php");
+                    ->execute([$skResult['internal_reference'], json_encode($skResult['raw']), $ref]);
+                $_SESSION['stakaba_ref'] = $skResult['internal_reference'];
+                $_SESSION['stakaba_order_number'] = $orderNumber;
+                header("Location: " . $skResult['redirect_url']);
                 exit;
             } else {
                 $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
-                    ->execute([json_encode($beemResult['raw']), $ref]);
+                    ->execute([json_encode($skResult['raw']), $ref]);
                 $_SESSION['info'] = 'Order placed but payment could not be initiated. You can retry payment from your orders.';
             }
         } else {
-            $azamResult = azampayInitiatePayment($total, $phone, $ref, $paymentMethod);
+            $ppResult = pawapayInitiateCheckout($total, $orderNumber, $orderId);
 
-            if ($azamResult['success']) {
+            if ($ppResult['success']) {
                 $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
-                    ->execute([$azamResult['transaction_id'], json_encode($azamResult['raw']), $ref]);
-                $_SESSION['success'] = 'Order placed! Check your phone to complete payment.';
+                    ->execute([$ppResult['checkout_id'], json_encode($ppResult['raw']), $ref]);
+                $_SESSION['pawapay_checkout_id'] = $ppResult['checkout_id'];
+                $_SESSION['pawapay_order_number'] = $orderNumber;
+                header("Location: " . $ppResult['redirect_url']);
+                exit;
             } else {
                 $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
-                    ->execute([json_encode($azamResult['raw']), $ref]);
+                    ->execute([json_encode($ppResult['raw']), $ref]);
                 $_SESSION['info'] = 'Order placed but payment could not be initiated. You can retry payment from your orders.';
             }
         }
@@ -146,6 +151,8 @@ $user = $user->fetch();
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <div class="container py-5">
     <nav aria-label="breadcrumb" class="mb-4">
         <ol class="breadcrumb bg-transparent p-0 mb-0">
@@ -214,6 +221,17 @@ require_once __DIR__ . '/../includes/header.php';
                             <input type="text" name="street" class="form-control" placeholder="<?= __('street_placeholder') ?>" required>
                         </div>
                     </div>
+                    <div id="locationPicker" class="mt-3" style="<?= $deliveryMethod !== 'delivery' ? 'display:none' : '' ?>">
+                        <label class="form-label"><i class="fas fa-map-pin me-1"></i><?= t('Pin your exact location', 'Weka alama mahali ulipo') ?></label>
+                        <div class="d-flex gap-2 mb-2">
+                            <button type="button" id="detectBtn" class="btn btn-sm btn-outline-dark-custom"><i class="fas fa-crosshairs me-1"></i><?= t('Detect my location', 'Pata eneo langu') ?></button>
+                            <small class="text-muted align-self-center"><?= t('Drop a pin on the map or click Detect', 'Weka alama ramanini au bofya Pata eneo langu') ?></small>
+                        </div>
+                        <div id="map" style="height:280px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);z-index:0;"></div>
+                        <input type="hidden" name="latitude" id="latitude" value="">
+                        <input type="hidden" name="longitude" id="longitude" value="">
+                        <div id="coordsDisplay" class="small text-muted mt-1"></div>
+                    </div>
                 </div>
 
                 <div class="form-card p-4 mb-4">
@@ -246,38 +264,32 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="form-card p-4">
                     <h5 class="fw-700 mb-3"><i class="fas fa-credit-card me-2 text-gold"></i><?= __('payment_method') ?></h5>
                     <div class="row g-3">
-                        <?php $methods = [
-                            'mpesa' => ['M-Pesa', '#4CAF50'],
-                            'airtel_money' => ['Airtel Money', '#E53935'],
-                            'tigo_pesa' => ['Tigo Pesa', '#1565C0'],
-                            'halopesa' => ['HaloPesa', '#FF6F00'],
-                        ]; ?>
-                        <?php foreach ($methods as $key => [$name, $color]): ?>
                         <div class="col-md-6">
                             <label class="payment-option">
-                                <input class="form-check-input" type="radio" name="payment_method" value="<?= $key ?>" <?= $key === 'mpesa' ? 'checked' : '' ?>>
+                                <input class="form-check-input" type="radio" name="payment_method" value="pawapay" <?= $defaultPayment === 'pawapay' ? 'checked' : '' ?>>
                                 <div class="d-flex align-items-center">
-                                    <div class="payment-icon" style="background:<?= $color ?>15;color:<?= $color ?>;"><i class="fas fa-mobile-alt"></i></div>
+                                    <div class="payment-icon" style="background:#E91E6315;color:#E91E63;"><i class="fas fa-mobile-alt"></i></div>
                                     <div>
-                                        <strong><?= $name ?></strong>
-                                        <br><small class="text-muted"><?= __('pay_with') ?> <?= $name ?></small>
+                                        <strong>Mobile Money</strong>
+                                        <br><small class="text-muted">M-Pesa, Airtel, Tigo, HaloPesa</small>
                                     </div>
                                 </div>
                             </label>
                         </div>
-                        <?php endforeach; ?>
+                        <?php if ($stakabaKey): ?>
                         <div class="col-md-6">
                             <label class="payment-option">
-                                <input class="form-check-input" type="radio" name="payment_method" value="beem">
+                                <input class="form-check-input" type="radio" name="payment_method" value="stakaba" <?= $defaultPayment === 'stakaba' ? 'checked' : '' ?>>
                                 <div class="d-flex align-items-center">
-                                    <div class="payment-icon" style="background:#6C2BD915;color:#6C2BD9;"><i class="fas fa-credit-card"></i></div>
+                                    <div class="payment-icon" style="background:#3366FF15;color:#3366FF;"><i class="fas fa-credit-card"></i></div>
                                     <div>
-                                        <strong>Beem (All Networks)</strong>
-                                        <br><small class="text-muted">Pay via M-Pesa, Airtel, Tigo, HaloPesa</small>
+                                        <strong>Credit / Debit Card</strong>
+                                        <br><small class="text-muted">Visa, Mastercard</small>
                                     </div>
                                 </div>
                             </label>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -323,6 +335,72 @@ require_once __DIR__ . '/../includes/header.php';
 <script>
 document.querySelectorAll('.form-check').forEach(el => {
     el.addEventListener('click', function() { this.querySelector('.form-check-input').checked = true; });
+});
+
+// Location picker map
+var mapEl = document.getElementById('map');
+var latInput = document.getElementById('latitude');
+var lngInput = document.getElementById('longitude');
+var coordsDisplay = document.getElementById('coordsDisplay');
+var detectBtn = document.getElementById('detectBtn');
+var locationPicker = document.getElementById('locationPicker');
+var marker = null;
+var map = null;
+
+function initMap(lat, lng) {
+    if (map) map.remove();
+    map = L.map('map').setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+    marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+    marker.on('dragend', function() {
+        var pos = marker.getLatLng();
+        updateCoords(pos.lat, pos.lng);
+    });
+    map.on('click', function(e) {
+        if (marker) map.removeLayer(marker);
+        marker = L.marker([e.latlng.lat, e.latlng.lng], { draggable: true }).addTo(map);
+        marker.on('dragend', function() {
+            var pos = marker.getLatLng();
+            updateCoords(pos.lat, pos.lng);
+        });
+        updateCoords(e.latlng.lat, e.latlng.lng);
+    });
+    updateCoords(lat, lng);
+}
+
+function updateCoords(lat, lng) {
+    latInput.value = lat.toFixed(7);
+    lngInput.value = lng.toFixed(7);
+    coordsDisplay.innerHTML = lat.toFixed(5) + ', ' + lng.toFixed(5);
+}
+
+detectBtn.addEventListener('click', function() {
+    if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
+    detectBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Detecting...';
+    detectBtn.disabled = true;
+    navigator.geolocation.getCurrentPosition(function(pos) {
+        initMap(pos.coords.latitude, pos.coords.longitude);
+        detectBtn.innerHTML = '<i class="fas fa-crosshairs me-1"></i><?= t('Detect my location', 'Pata eneo langu') ?>';
+        detectBtn.disabled = false;
+    }, function() {
+        alert('<?= t('Could not detect location. Please drop a pin on the map.', 'Haikuweza kupata eneo. Tafadhali weka alama ramanini.') ?>');
+        initMap(-6.162, 35.752); // Default Dodoma
+        detectBtn.innerHTML = '<i class="fas fa-crosshairs me-1"></i><?= t('Detect my location', 'Pata eneo langu') ?>';
+        detectBtn.disabled = false;
+    }, { enableHighAccuracy: true, timeout: 10000 });
+});
+
+// Initialize with default location (Dodoma)
+initMap(-6.162, 35.752);
+
+// Toggle map visibility with delivery method
+document.querySelectorAll('input[name="delivery_method"]').forEach(function(el) {
+    el.addEventListener('change', function() {
+        locationPicker.style.display = this.value === 'delivery' ? 'block' : 'none';
+    });
 });
 </script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/vendor/autoload.php';
+
 $sessionPath = __DIR__ . '/tmp';
 if (!is_dir($sessionPath)) { mkdir($sessionPath, 0777, true); }
 ini_set('session.save_path', $sessionPath);
@@ -43,6 +45,8 @@ define('SHIPPING_RATE_DEFAULT', 5);
 define('SHIPPING_RATE_REDUCED', 2);
 define('FREE_SHIPPING_MIN', 200000);
 define('ITEMS_PER_PAGE', 12);
+define('SHOP_LAT', -6.1722);
+define('SHOP_LNG', 35.7395);
 
 // Volume discount tiers: [min_qty, max_qty, discount_percent]
 define('VOLUME_DISCOUNT_TIERS', json_encode([
@@ -66,38 +70,33 @@ try {
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/lang.php';
 
-// Clerk Authentication (https://clerk.com)
-define('CLERK_PUBLISHABLE_KEY', env('CLERK_PUBLISHABLE_KEY', ''));
+// Google OAuth
+define('GOOGLE_CLIENT_ID', env('GOOGLE_CLIENT_ID', ''));
+define('GOOGLE_CLIENT_SECRET', env('GOOGLE_CLIENT_SECRET', ''));
+define('GOOGLE_REDIRECT_URI', SITE_URL . '/auth/google-callback.php');
 
 // Google Gemini AI (https://aistudio.google.com) - Primary, free tier
 define('GEMINI_API_KEY', env('GEMINI_API_KEY', ''));
 
 // Groq AI (https://console.groq.com) - Free Llama vision
 define('GROQ_API_KEY', env('GROQ_API_KEY', ''));
-define('GROQ_MODEL', env('GROQ_MODEL', 'meta-llama/llama-4-scout-17b-16e-instruct'));
+define('GROQ_MODEL', env('GROQ_MODEL', 'llama-3.3-70b-versatile'));
 define('GROQ_ENDPOINT', 'https://api.groq.com/openai/v1/chat/completions');
-
-// DeepSeek AI (https://platform.deepseek.com) - Cheap vision model
-define('DEEPSEEK_API_KEY', env('DEEPSEEK_API_KEY', ''));
-define('DEEPSEEK_MODEL', env('DEEPSEEK_MODEL', 'deepseek-vl2'));
-define('DEEPSEEK_ENDPOINT', 'https://api.deepseek.com/chat/completions');
 
 // OpenRouter AI (https://openrouter.ai) - Fallback
 define('AI_FALLBACK_ENDPOINT', env('AI_FALLBACK_ENDPOINT', 'https://openrouter.ai/api/v1/chat/completions'));
 define('AI_FALLBACK_KEY', env('AI_FALLBACK_KEY', ''));
 define('AI_FALLBACK_MODEL', env('AI_FALLBACK_MODEL', 'openai/gpt-4o-mini'));
-define('CLERK_SECRET_KEY', env('CLERK_SECRET_KEY', ''));
-define('CLERK_API_URL', 'https://api.clerk.com/v1');
-// Derived Clerk frontend URL (extracted from publishable key)
-$__pkB64 = str_replace(['pk_test_', 'pk_live_'], '', CLERK_PUBLISHABLE_KEY);
-$__pkDecoded = base64_decode($__pkB64, true);
-$__domain = $__pkDecoded ? rtrim($__pkDecoded, '$') : '';
-$__instance = $__domain ? explode('.', $__domain)[0] : '';
-define('CLERK_FRONTEND_API_DOMAIN', $__domain);
-define('CLERK_ACCOUNT_PORTAL_URL', $__instance ? 'https://' . $__instance . '.accounts.dev' : '');
-unset($__pkB64, $__pkDecoded, $__domain, $__instance);
+// Redirect users with incomplete profiles to complete-profile page
+requireCompleteProfile();
 
-require_once __DIR__ . '/includes/clerk_handler.php';
+// Load active theme for public-facing pages
+$activeTheme = getActiveTheme();
+$activeThemeCssVars = [];
+if ($activeTheme) {
+    $decoded = json_decode($activeTheme['css_variables'], true);
+    if (is_array($decoded)) $activeThemeCssVars = $decoded;
+}
 
 // Track last activity for online/offline status
 if (isset($_SESSION['user_id'])) {

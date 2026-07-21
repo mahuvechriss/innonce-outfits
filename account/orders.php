@@ -20,7 +20,6 @@ if ($orderNumber) {
 
     // Retry payment for unpaid/failed orders
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['retry_payment'])) {
-        require_once __DIR__ . '/../includes/azampay.php';
         if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
             redirect("orders.php?order={$order['order_number']}", 'Invalid token.', 'error');
         }
@@ -30,16 +29,56 @@ if ($orderNumber) {
         $prevPhone = $prevTx->fetchColumn() ?: '';
         $stmt = $db->prepare("INSERT INTO payment_transactions (order_id, user_id, payment_method, reference, amount, currency, phone, status) VALUES (?, ?, ?, ?, ?, 'TZS', ?, 'pending')");
         $stmt->execute([$order['id'], $userId, $order['payment_method'], $newRef, $order['total'], $prevPhone]);
+        $paymentMethod = $order['payment_method'];
 
-        $azamResult = azampayInitiatePayment($order['total'], $prevPhone, $newRef, $order['payment_method']);
-        if ($azamResult['success']) {
-            $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
-                ->execute([$azamResult['transaction_id'], json_encode($azamResult['raw']), $newRef]);
-            $_SESSION['success'] = 'Payment request sent! Check your phone.';
+        if ($paymentMethod === 'pawapay') {
+            require_once __DIR__ . '/../includes/pawapay.php';
+            $ppResult = pawapayInitiateCheckout($order['total'], $order['order_number'], $order['id']);
+            if ($ppResult['success']) {
+                $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
+                    ->execute([$ppResult['checkout_id'], json_encode($ppResult['raw']), $newRef]);
+                $_SESSION['pawapay_checkout_id'] = $ppResult['checkout_id'];
+                $_SESSION['pawapay_order_number'] = $order['order_number'];
+                header("Location: " . $ppResult['redirect_url']);
+                exit;
+            } else {
+                $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
+                    ->execute([json_encode($ppResult['raw']), $newRef]);
+                $_SESSION['info'] = 'Payment retry failed. Please try again later.';
+            }
+        } elseif ($paymentMethod === 'stakaba') {
+            require_once __DIR__ . '/../includes/stakaba.php';
+            $prevEmail = $db->prepare("SELECT email FROM users WHERE id = ?");
+            $prevEmail->execute([$userId]);
+            $email = $prevEmail->fetchColumn() ?: '';
+            $prevName = $db->prepare("SELECT name FROM users WHERE id = ?");
+            $prevName->execute([$userId]);
+            $name = $prevName->fetchColumn() ?: '';
+            $skResult = stakabaCheckout($order['total'], $order['order_number'], $order['id'], $email, $prevPhone, $name);
+            if ($skResult['success']) {
+                $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
+                    ->execute([$skResult['internal_reference'], json_encode($skResult['raw']), $newRef]);
+                $_SESSION['stakaba_ref'] = $skResult['internal_reference'];
+                $_SESSION['stakaba_order_number'] = $order['order_number'];
+                header("Location: " . $skResult['redirect_url']);
+                exit;
+            } else {
+                $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
+                    ->execute([json_encode($skResult['raw']), $newRef]);
+                $_SESSION['info'] = 'Payment retry failed. Please try again later.';
+            }
         } else {
-            $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
-                ->execute([json_encode($azamResult['raw']), $newRef]);
-            $_SESSION['info'] = 'Payment retry failed. Please try again later.';
+            require_once __DIR__ . '/../includes/azampay.php';
+            $azamResult = azampayInitiatePayment($order['total'], $prevPhone, $newRef, $paymentMethod);
+            if ($azamResult['success']) {
+                $db->prepare("UPDATE payment_transactions SET transaction_id = ?, response_data = ? WHERE reference = ?")
+                    ->execute([$azamResult['transaction_id'], json_encode($azamResult['raw']), $newRef]);
+                $_SESSION['success'] = 'Payment request sent! Check your phone.';
+            } else {
+                $db->prepare("UPDATE payment_transactions SET status = 'failed', response_data = ? WHERE reference = ?")
+                    ->execute([json_encode($azamResult['raw']), $newRef]);
+                $_SESSION['info'] = 'Payment retry failed. Please try again later.';
+            }
         }
         header("Location: orders.php?order={$order['order_number']}");
         exit;
@@ -106,7 +145,7 @@ if ($orderNumber) {
                     <div class="small">
                         <div class="d-flex justify-content-between mb-1">
                             <span class="text-muted"><?= __('method') ?></span>
-                            <span><i class="fas fa-mobile-alt me-1"></i><?= ucwords(str_replace('_', ' ', $order['payment_method'])) ?></span>
+                            <span><?php $pmLabels = ['pawapay' => 'Mobile Money', 'stakaba' => 'Credit / Debit Card', 'beem' => 'Beem', 'mpesa' => 'M-Pesa', 'airtel_money' => 'Airtel Money', 'tigo_pesa' => 'Tigo Pesa', 'halopesa' => 'HaloPesa']; $icon = $order['payment_method'] === 'stakaba' ? 'fa-credit-card' : 'fa-mobile-alt'; ?><i class="fas <?= $icon ?> me-1"></i><?= $pmLabels[$order['payment_method']] ?? ucwords(str_replace('_', ' ', $order['payment_method'])) ?></span>
                         </div>
                         <div class="d-flex justify-content-between">
                             <span class="text-muted"><?= __('status') ?></span>

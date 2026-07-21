@@ -5,13 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" href="<?= SITE_URL ?>/assets/images/logo.png">
     <link rel="apple-touch-icon" href="<?= SITE_URL ?>/assets/images/logo.png">
-    <meta name="theme-color" content="#FF8C00">
+    <meta name="theme-color" content="<?= $activeThemeCssVars['--orange'] ?? '#FF8C00' ?>">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="INNOCE">
     <link rel="manifest" href="<?= SITE_URL ?>/manifest.json">
     <script>
-        // Apply saved theme immediately — runs before anything renders
         (function() {
             var theme = 'light';
             try { theme = localStorage.getItem('innonce-theme'); } catch(e) {}
@@ -26,6 +25,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= SITE_URL ?>/assets/css/style.css?v=2.0">
+    <?= renderThemeCss() ?>
+    <?= renderThemeDecorations() ?>
 </head>
 <body>
 <nav class="navbar navbar-expand-lg bg-white shadow-sm sticky-top">
@@ -88,6 +89,9 @@
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item text-gold fw-600" href="<?= SITE_URL ?>/admin/index.php"><i class="fas fa-cog me-2"></i><?= __('admin_panel') ?></a></li>
                         <?php endif; ?>
+                        <?php if (isWorker()): ?>
+                        <li><a class="dropdown-item" href="<?= SITE_URL ?>/worker/orders.php"><i class="fas fa-clipboard-list me-2 text-gold"></i><?= __('worker_orders') ?></a></li>
+                        <?php endif; ?>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item text-danger" href="<?= SITE_URL ?>/auth/logout.php"><i class="fas fa-sign-out-alt me-2"></i><?= __('logout') ?></a></li>
                     </ul>
@@ -100,7 +104,6 @@
         </div>
     </div>
 </nav>
-
 <main>
 <?php if (isset($_SESSION['success'])): ?>
     <div class="alert alert-success alert-dismissible fade show border-0 mb-0 rounded-0">

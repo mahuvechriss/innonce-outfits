@@ -66,7 +66,7 @@ if ($productSlug) {
                     <div class="fs-4 fw-700">
                         <?php if ($product['discount_price']): ?>
                         <span class="text-gold"><?= formatMoney($product['discount_price']) ?></span>
-                        <span class="text-muted text-decoration-line-through ms-2 fs-6"><?= formatMoney($product['price']) ?></span>
+                        <span class="text-decoration-line-through ms-2 fs-6" style="color:#D42426"><?= formatMoney($product['price']) ?></span>
                         <?php else: ?>
                         <span><?= formatMoney($product['price']) ?></span>
                         <?php endif; ?>

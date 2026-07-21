@@ -277,6 +277,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('index.php?action=orders', 'Order cannot be deleted yet (2 month minimum).');
         }
     }
+    elseif ($actionPost === 'worker_assign') {
+        $workerId = !empty($_POST['worker_id']) ? (int)$_POST['worker_id'] : null;
+        $orderSt = $db->prepare("SELECT status FROM orders WHERE id = ?");
+        $orderSt->execute([$id]);
+        $orderStatus = $orderSt->fetchColumn() ?: '';
+        $db->prepare("UPDATE orders SET worker_id = ? WHERE id = ?")->execute([$workerId, $id]);
+        if ($workerId) {
+            $stmt = $db->prepare("SELECT name FROM users WHERE id = ?");
+            $stmt->execute([$workerId]);
+            $workerName = $stmt->fetchColumn() ?: 'Worker';
+            $description = "Assigned to worker: $workerName";
+        } else {
+            $description = 'Worker unassigned.';
+        }
+        require_once __DIR__ . '/../includes/notifications.php';
+        notifyOrderUpdate($id, $orderStatus, $description);
+        redirect('index.php?action=orders&id=' . $id, 'Worker assignment updated.');
+    }
+    elseif ($actionPost === 'make_worker') {
+        $db->prepare("UPDATE users SET role = 'worker' WHERE id = ? AND role = 'customer'")->execute([$id]);
+        redirect('index.php?action=customers', 'Customer promoted to worker.');
+    }
+    elseif ($actionPost === 'create_worker') {
+        $name = trim($_POST['name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
+        $password = $_POST['password'] ?? '';
+        if (!$name || !$email || !$password) {
+            redirect('index.php?action=workers', 'Name, email and password are required.', 'error');
+        }
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        try {
+            $db->prepare("INSERT INTO users (name, email, phone, password, role, created_at) VALUES (?, ?, ?, ?, 'worker', NOW())")->execute([$name, $email, $phone ?: null, $hash]);
+            redirect('index.php?action=workers', "Worker $name created.");
+        } catch (Exception $e) {
+            redirect('index.php?action=workers', 'Email already exists.', 'error');
+        }
+    }
     // Coupons
     elseif ($actionPost === 'coupon_save') {
         $code = strtoupper(trim($_POST['code'] ?? ''));
@@ -1286,6 +1324,19 @@ switch ($action) {
                             <select name="status" class="form-select"><?php foreach (['pending','confirmed','processing','packed','shipped','delivered','cancelled'] as $s): ?><option value="<?= $s ?>" <?= $order['status'] === $s ? 'selected' : '' ?>><?= ucfirst($s) ?></option><?php endforeach; ?></select>
                             <button type="submit" class="btn-gold-sm">Update</button>
                         </form>
+                        <hr>
+                        <h6 class="fw-600">Assign Worker</h6>
+                        <form method="POST" class="d-flex gap-2"><?= csrf() ?><input type="hidden" name="admin_action" value="worker_assign">
+                            <input type="hidden" name="id" value="<?= $order['id'] ?>">
+                            <select name="worker_id" class="form-select">
+                                <option value="">— None —</option>
+                                <?php $workers = $db->query("SELECT id, name FROM users WHERE role='worker' ORDER BY name")->fetchAll(); ?>
+                                <?php foreach ($workers as $w): ?>
+                                <option value="<?= $w['id'] ?>" <?= $order['worker_id'] == $w['id'] ? 'selected' : '' ?>><?= escape($w['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="submit" class="btn-gold-sm">Assign</button>
+                        </form>
                         <?php $twoMonthsAgo = date('Y-m-d H:i:s', strtotime('-2 months')); ?>
                         <?php if ($order['created_at'] <= $twoMonthsAgo): ?>
                         <hr>
@@ -1311,9 +1362,10 @@ switch ($action) {
             $orders = $db->query("SELECT o.*, u.email as customer_email FROM orders o LEFT JOIN users u ON o.user_id = u.id ORDER BY o.created_at DESC")->fetchAll(); ?>
             <h4 class="fw-600 mb-3">Orders (<?= count($orders) ?>)</h4>
             <table class="table table-sm">
-                <thead><tr><th>Order #</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th>Date</th><th></th></tr></thead>
+                <thead><tr><th>Order #</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th>Worker</th><th>Date</th><th></th></tr></thead>
                 <tbody><?php foreach ($orders as $o): ?>
-                <tr><td>#<?= escape($o['order_number']) ?></td><td><small><?= escape($o['customer_name'] ?: $o['customer_email'] ?: 'User #' . $o['user_id']) ?><br><?= escape($o['customer_phone']) ?></small></td><td><?= formatMoney($o['total']) ?></td><td><span class="small text-<?= $o['payment_status'] === 'paid' ? 'success' : 'warning' ?>"><?= $o['payment_status'] ?></span></td><td><span class="badge bg-secondary"><?= ucfirst($o['status']) ?></span></td><td><small><?= date('M d, H:i', strtotime($o['created_at'])) ?></small></td><td><a href="index.php?action=orders&id=<?= $o['id'] ?>" class="btn btn-sm btn-dark-custom">View</a></td></tr>
+                <?php $wn = null; if ($o['worker_id']) { $ws = $db->prepare("SELECT name FROM users WHERE id=?"); $ws->execute([$o['worker_id']]); $wn = $ws->fetchColumn(); } ?>
+                <tr><td>#<?= escape($o['order_number']) ?></td><td><small><?= escape($o['customer_name'] ?: $o['customer_email'] ?: 'User #' . $o['user_id']) ?><br><?= escape($o['customer_phone']) ?></small></td><td><?= formatMoney($o['total']) ?></td><td><span class="small text-<?= $o['payment_status'] === 'paid' ? 'success' : 'warning' ?>"><?= $o['payment_status'] ?></span></td><td><span class="badge bg-secondary"><?= ucfirst($o['status']) ?></span></td><td><small><?= $wn ? escape($wn) : '—' ?></small></td><td><small><?= date('M d, H:i', strtotime($o['created_at'])) ?></small></td><td><a href="index.php?action=orders&id=<?= $o['id'] ?>" class="btn btn-sm btn-dark-custom">View</a></td></tr>
                 <?php endforeach; ?></tbody>
             </table>
         <?php } break;
@@ -1453,6 +1505,7 @@ switch ($action) {
                         <th style="width:130px;">Notifications</th>
                         <th>Joined</th>
                         <th>Status</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1481,13 +1534,86 @@ switch ($action) {
                             <span class="status-dot <?= $c['is_online'] ? 'online' : 'offline' ?>"></span>
                             <small class="<?= $c['is_online'] ? 'text-success fw-600' : 'text-muted' ?>"><?= $c['is_online'] ? 'Online' : 'Offline' ?></small>
                         </td>
+                        <td>
+                            <form method="POST" onsubmit="return confirm('Make this customer a worker?')"><?= csrf() ?>
+                                <input type="hidden" name="admin_action" value="make_worker">
+                                <input type="hidden" name="id" value="<?= $c['id'] ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Make Worker"><i class="fas fa-user-cog me-1"></i>Worker</button>
+                            </form>
+                        </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="7" class="text-center text-muted py-4">No customers found.</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted py-4">No customers found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
         </div>
+    <?php break;
+
+    case 'workers':
+        $workers = $db->query("SELECT id, name, email, phone, created_at FROM users WHERE role='worker' ORDER BY name")->fetchAll();
+    ?>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-600 mb-0">Workers (<?= count($workers) ?>)</h4>
+            <button class="btn-gold-sm" onclick="document.getElementById('createWorkerForm').style.display='block'"><i class="fas fa-plus me-1"></i>Create Worker</button>
+        </div>
+        <div class="border p-3 mb-4" id="createWorkerForm" style="display:none;">
+            <h6 class="fw-600 mb-3"><i class="fas fa-user-plus me-2 text-gold"></i>New Worker</h6>
+            <form method="POST" class="row g-2">
+                <?= csrf() ?><input type="hidden" name="admin_action" value="create_worker">
+                <div class="col-md-3"><input type="text" name="name" class="form-control" placeholder="Full name" required></div>
+                <div class="col-md-3"><input type="email" name="email" class="form-control" placeholder="Email" required></div>
+                <div class="col-md-2"><input type="text" name="phone" class="form-control" placeholder="Phone (optional)"></div>
+                <div class="col-md-2"><input type="password" name="password" class="form-control" placeholder="Password" required></div>
+                <div class="col-md-2"><button type="submit" class="btn btn-gold w-100"><i class="fas fa-save me-1"></i>Create</button></div>
+            </form>
+        </div>
+        <?php if ($workers): ?>
+        <div class="row g-3">
+            <?php foreach ($workers as $w):
+                $assigned = $db->prepare("SELECT o.*, u.name as customer_name, u.phone as customer_phone FROM orders o LEFT JOIN users u ON o.user_id = u.id WHERE o.worker_id = ? AND o.status != 'delivered' ORDER BY o.created_at DESC");
+                $assigned->execute([$w['id']]);
+                $assignedOrders = $assigned->fetchAll();
+            ?>
+            <div class="col-md-6 col-lg-4">
+                <div class="border p-3 h-100">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h6 class="fw-700 mb-0"><i class="fas fa-user-cog me-2 text-gold"></i><?= escape($w['name']) ?></h6>
+                        <small class="text-muted">#<?= $w['id'] ?></small>
+                    </div>
+                    <p class="small text-muted mb-2">
+                        <i class="fas fa-envelope me-1"></i><?= escape($w['email']) ?><br>
+                        <i class="fas fa-phone me-1"></i><?= escape($w['phone'] ?: '-') ?>
+                    </p>
+                    <?php if ($assignedOrders): ?>
+                    <hr>
+                    <h6 class="fw-600 small text-uppercase text-muted mb-2">Active Assignments (<?= count($assignedOrders) ?>)</h6>
+                    <?php foreach ($assignedOrders as $o): ?>
+                    <div class="border-start border-3 border-gold ps-2 mb-2 small">
+                        <div class="fw-600">#<?= escape($o['order_number']) ?> — <?= escape($o['customer_name'] ?: 'User #' . $o['user_id']) ?></div>
+                        <div><i class="fas fa-phone me-1"></i><?= escape($o['customer_phone'] ?: $o['phone'] ?: '-') ?></div>
+                        <div><span class="badge bg-secondary"><?= ucfirst($o['status']) ?></span>
+                        <?php if ($o['delivery_method'] === 'delivery' && $o['latitude'] && $o['longitude']): ?>
+                            <?php $dist = distanceKm(SHOP_LAT, SHOP_LNG, $o['latitude'], $o['longitude']); ?>
+                            <span class="text-muted"><i class="fas fa-road ms-1"></i> <?= number_format($dist, 1) ?> km</span>
+                            <a href="https://www.google.com/maps/dir/?api=1&origin=<?= SHOP_LAT ?>,<?= SHOP_LNG ?>&destination=<?= $o['latitude'] ?>,<?= $o['longitude'] ?>" target="_blank" class="btn btn-sm btn-outline-success mt-1"><i class="fas fa-route me-1"></i>Track</a>
+                        <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                    <?php else: ?>
+                    <p class="text-muted small mb-0">No active assignments.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php else: ?>
+        <div class="text-center text-muted py-5">
+            <i class="fas fa-user-cog fa-3x mb-3"></i>
+            <p>No workers found. Assign a user role to 'worker' to see them here.</p>
+        </div>
+        <?php endif; ?>
     <?php break;
 
     case 'reports':
