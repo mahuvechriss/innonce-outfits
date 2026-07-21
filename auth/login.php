@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
-$pageTitle = 'Login';
+$pageTitle = t('Login', 'Ingia');
 
 if (isset($_GET['exit_account'])) {
     session_destroy();
@@ -13,9 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = $_POST['password'] ?? '';
 
     if (empty($email) || empty($password)) {
-        $_SESSION['error'] = 'Please fill in all fields.';
+        $_SESSION['error'] = t('Please fill in all fields.', 'Tafadhali jaza sehemu zote.');
     } elseif (!verifyCsrf($_POST['csrf_token'] ?? '')) {
-        $_SESSION['error'] = 'Invalid token.';
+        $_SESSION['error'] = t('Invalid token.', 'Tokeni batili.');
     } else {
         $stmt = $db->prepare("SELECT * FROM users WHERE email = ?");
         $stmt->execute([$email]);
@@ -29,11 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_role'] = $user['role'];
             $_SESSION['user_photo'] = $user['profile_photo'];
             $_SESSION['user_align'] = $user['photo_align'] ?? 'center';
-            $_SESSION['success'] = 'Welcome back, ' . $user['name'] . '!';
+            $_SESSION['success'] = t('Welcome back', 'Karibu tena') . ', ' . $user['name'] . '!';
             header('Location: ' . SITE_URL . '/index.php');
             exit;
         } else {
-            $_SESSION['error'] = 'Invalid email or password.';
+            $_SESSION['error'] = t('Invalid email or password.', 'Barua pepe au neno la siri si sahihi.');
         }
     }
 }

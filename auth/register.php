@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
-$pageTitle = 'Register';
+$pageTitle = t('Register', 'Jisajili');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['name'] ?? '');
@@ -10,27 +10,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $confirm = $_POST['password_confirmation'] ?? '';
 
     if (empty($name) || empty($email) || empty($password)) {
-        $_SESSION['error'] = 'Please fill in all required fields.';
+        $_SESSION['error'] = t('Please fill in all required fields.', 'Tafadhali jaza sehemu zote zinazohitajika.');
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $_SESSION['error'] = 'Invalid email.';
+        $_SESSION['error'] = t('Invalid email.', 'Barua pepe si sahihi.');
     } elseif (strlen($password) < 6) {
-        $_SESSION['error'] = 'Password must be at least 6 characters.';
+        $_SESSION['error'] = t('Password must be at least 6 characters.', 'Neno la siri lazima liwe na angalau herufi 6.');
     } elseif ($password !== $confirm) {
-        $_SESSION['error'] = 'Passwords do not match.';
+        $_SESSION['error'] = t('Passwords do not match.', 'Nyuzi za siri hazifanani.');
     } elseif (!verifyCsrf($_POST['csrf_token'] ?? '')) {
-        $_SESSION['error'] = 'Invalid token.';
+        $_SESSION['error'] = t('Invalid token.', 'Tokeni batili.');
     } else {
         $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
         $stmt->execute([$email]);
         if ($stmt->fetch()) {
-            $_SESSION['error'] = 'Email already registered.';
+            $_SESSION['error'] = t('Email already registered.', 'Barua pepe tayari imesajiliwa.');
         } else {
             $hashed = password_hash($password, PASSWORD_DEFAULT);
             require_once __DIR__ . '/../includes/beem.php';
             $phone = formatSmsPhone($phone);
             $stmt = $db->prepare("INSERT INTO users (name, email, phone, password, role, notify_sms) VALUES (?, ?, ?, ?, 'customer', 1)");
             $stmt->execute([$name, $email, $phone, $hashed]);
-            $_SESSION['success'] = 'Registration successful! Please login.';
+            $_SESSION['success'] = t('Registration successful! Please login.', 'Usajili umefanikiwa! Tafadhali ingia.');
             header('Location: login.php');
             exit;
         }

@@ -8,7 +8,7 @@ if ($action === "view" && !empty($_GET["id"])) {
     $stmt = $db->prepare("SELECT * FROM orders WHERE id = ? AND worker_id = ?");
     $stmt->execute([$_GET["id"], $userId]);
     $order = $stmt->fetch();
-    if (!$order) { redirect("orders.php", "Order not found.", "error"); }
+    if (!$order) { redirect("orders.php", t("Order not found.", "Agizo halijapatikana."), "error"); }
     $items = $db->prepare("SELECT oi.*, p.name_en, p.name_sw, p.slug, (SELECT image_path FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as image FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?");
     $items->execute([$order["id"]]);
     $items = $items->fetchAll();

@@ -1553,13 +1553,13 @@ switch ($action) {
                         <td><small><?= date('M d, Y', strtotime($c['created_at'])) ?></small></td>
                         <td>
                             <span class="status-dot <?= $c['is_online'] ? 'online' : 'offline' ?>"></span>
-                            <small class="<?= $c['is_online'] ? 'text-success fw-600' : 'text-muted' ?>"><?= $c['is_online'] ? 'Online' : 'Offline' ?></small>
+                            <small class="<?= $c['is_online'] ? 'text-success fw-600' : 'text-muted' ?>"><?= $c['is_online'] ? __t('online') : __t('offline') ?></small>
                         </td>
                         <td>
-                            <form method="POST" onsubmit="return confirm('Make this customer a worker?')"><?= csrf() ?>
+                            <form method="POST" onsubmit="return confirm('<?= __t('make_worker_confirm') ?>')"><?= csrf() ?>
                                 <input type="hidden" name="admin_action" value="make_worker">
                                 <input type="hidden" name="id" value="<?= $c['id'] ?>">
-                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Make Worker"><i class="fas fa-user-cog me-1"></i>Worker</button>
+                                <button type="submit" class="btn btn-sm btn-outline-warning" title="<?= __t('make_worker') ?>"><i class="fas fa-user-cog me-1"></i><?= __t('worker') ?></button>
                             </form>
                         </td>
                     </tr>
@@ -1575,18 +1575,18 @@ switch ($action) {
         $workers = $db->query("SELECT id, name, email, phone, created_at FROM users WHERE role='worker' ORDER BY name")->fetchAll();
     ?>
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="fw-600 mb-0">Workers (<?= count($workers) ?>)</h4>
-            <button class="btn-gold-sm" onclick="document.getElementById('createWorkerForm').style.display='block'"><i class="fas fa-plus me-1"></i>Create Worker</button>
+            <h4 class="fw-600 mb-0"><?= __t('workers') ?> (<?= count($workers) ?>)</h4>
+            <button class="btn-gold-sm" onclick="document.getElementById('createWorkerForm').style.display='block'"><i class="fas fa-plus me-1"></i><?= __t('create_worker') ?></button>
         </div>
         <div class="border p-3 mb-4" id="createWorkerForm" style="display:none;">
-            <h6 class="fw-600 mb-3"><i class="fas fa-user-plus me-2 text-gold"></i>New Worker</h6>
+            <h6 class="fw-600 mb-3"><i class="fas fa-user-plus me-2 text-gold"></i><?= __t('new_worker') ?></h6>
             <form method="POST" class="row g-2">
                 <?= csrf() ?><input type="hidden" name="admin_action" value="create_worker">
-                <div class="col-md-3"><input type="text" name="name" class="form-control" placeholder="Full name" required></div>
-                <div class="col-md-3"><input type="email" name="email" class="form-control" placeholder="Email" required></div>
-                <div class="col-md-2"><input type="text" name="phone" class="form-control" placeholder="Phone (optional)"></div>
-                <div class="col-md-2"><input type="password" name="password" class="form-control" placeholder="Password" required></div>
-                <div class="col-md-2"><button type="submit" class="btn btn-gold w-100"><i class="fas fa-save me-1"></i>Create</button></div>
+                <div class="col-md-3"><input type="text" name="name" class="form-control" placeholder="<?= __t('full_name') ?>" required></div>
+                <div class="col-md-3"><input type="email" name="email" class="form-control" placeholder="<?= __t('email_label') ?>" required></div>
+                <div class="col-md-2"><input type="text" name="phone" class="form-control" placeholder="<?= __t('phone_optional') ?>"></div>
+                <div class="col-md-2"><input type="password" name="password" class="form-control" placeholder="<?= __t('password') ?>" required></div>
+                <div class="col-md-2"><button type="submit" class="btn btn-gold w-100"><i class="fas fa-save me-1"></i><?= __t('create') ?></button></div>
             </form>
         </div>
         <?php if ($workers): ?>

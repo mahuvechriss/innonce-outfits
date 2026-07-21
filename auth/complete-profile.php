@@ -7,7 +7,7 @@ if (!needsProfileCompletion()) {
     exit;
 }
 
-$pageTitle = 'Complete Profile';
+$pageTitle = t('Complete Profile', 'Kamilisha Wasifu');
 
 $stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->execute([$_SESSION['user_id']]);
@@ -68,7 +68,7 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="mb-3">
                         <label class="form-label"><i class="fas fa-phone me-1"></i><?= __('phone') ?> <span class="text-danger">*</span></label>
-                        <input type="tel" name="phone" class="form-control" placeholder="0712 345 678" required pattern="[\+\d\s\-]{9,15}" title="Tanzanian phone: 0712 345 678 or +255 712 345 678">
+                        <input type="tel" name="phone" class="form-control" placeholder="0712 345 678" required pattern="[\+\d\s\-]{9,15}" title="<?= t('Tanzanian phone: 0712 345 678 or +255 712 345 678', 'Namba ya simu ya Tanzania: 0712 345 678 au +255 712 345 678') ?>">
                         <small style="color:var(--text-secondary);"><?= t('Tanzanian phone number', 'Namba ya simu ya Tanzania') ?></small>
                     </div>
                     <button type="submit" class="btn btn-gold w-100"><i class="fas fa-check-circle me-2"></i><?= t('Complete Profile', 'Kamilisha Wasifu') ?></button>
