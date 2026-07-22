@@ -410,6 +410,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['broadcast_result'] = $stats;
         redirect('index.php?action=broadcast', 'Broadcast sent successfully.');
     }
+    // Themes
+    elseif ($actionPost === 'theme_save') {
+        $name = trim($_POST['name'] ?? '');
+        $slug = slugify($name);
+        if (!$name) { redirect('index.php?action=themes', 'Theme name is required.', 'error'); }
+        $description = trim($_POST['description'] ?? '');
+        $previewColor = trim($_POST['preview_color'] ?? '#FF8C00');
+        $editId = (int)($_POST['id'] ?? 0);
+        $autoSchedule = isset($_POST['auto_schedule']) ? 1 : 0;
+        $scheduledFrom = !empty($_POST['scheduled_from']) ? $_POST['scheduled_from'] : null;
+        $scheduledTo = !empty($_POST['scheduled_to']) ? $_POST['scheduled_to'] : null;
+
+        // Build decorations JSON
+        $decorations = [
+            'enabled' => isset($_POST['decor_enabled']) ? true : false,
+            'snowflakes' => isset($_POST['decor_snowflakes']) ? true : false,
+            'confetti' => isset($_POST['decor_confetti']) ? true : false,
+            'particles' => $_POST['decor_particles'] ?? 'none',
+            'particle_count' => (int)($_POST['decor_particle_count'] ?? 50),
+            'badge_enabled' => isset($_POST['badge_enabled']) ? true : false,
+            'badge_text_en' => trim($_POST['badge_text_en'] ?? ''),
+            'badge_text_sw' => trim($_POST['badge_text_sw'] ?? ''),
+            'badge_icon' => trim($_POST['badge_icon'] ?? ''),
+            'quick_styles' => [
+                'bg_color' => trim($_POST['qs_bg_color'] ?? '#ffffff'),
+                'text_color' => trim($_POST['qs_text_color'] ?? '#212529'),
+                'link_color' => trim($_POST['qs_link_color'] ?? '#0011ff'),
+                'heading_color' => trim($_POST['qs_heading_color'] ?? '#1a1a2e'),
+                'btn_bg' => trim($_POST['qs_btn_bg'] ?? '#ff8c00'),
+                'btn_text' => trim($_POST['qs_btn_text'] ?? '#ffffff'),
+                'navbar_bg' => trim($_POST['qs_navbar_bg'] ?? '#ff8c00'),
+                'card_bg' => trim($_POST['qs_card_bg'] ?? '#ffffff'),
+                'dark_bg_color' => trim($_POST['qs_dark_bg_color'] ?? '#121212'),
+                'dark_text_color' => trim($_POST['qs_dark_text_color'] ?? '#f5f0eb'),
+                'dark_link_color' => trim($_POST['qs_dark_link_color'] ?? '#ff8c00'),
+                'dark_heading_color' => trim($_POST['qs_dark_heading_color'] ?? '#f5f0eb'),
+                'dark_btn_bg' => trim($_POST['qs_dark_btn_bg'] ?? '#ff8c00'),
+                'dark_btn_text' => trim($_POST['qs_dark_btn_text'] ?? '#ffffff'),
+                'dark_navbar_bg' => trim($_POST['qs_dark_navbar_bg'] ?? '#121212'),
+                'dark_card_bg' => trim($_POST['qs_dark_card_bg'] ?? '#1e1e1e'),
+                'border_radius' => trim($_POST['qs_border_radius'] ?? ''),
+                'font_size' => trim($_POST['qs_font_size'] ?? ''),
+            ],
+        ];
+        $decorationsJson = json_encode($decorations);
+
+        if ($editId) {
+            $stmt = $db->prepare("UPDATE themes SET name=?, slug=?, description=?, preview_color=?, auto_schedule=?, scheduled_from=?, scheduled_to=?, decorations=?, updated_at=NOW() WHERE id=?");
+            $stmt->execute([$name, $slug, $description, $previewColor, $autoSchedule, $scheduledFrom, $scheduledTo, $decorationsJson, $editId]);
+            redirect('index.php?action=themes', 'Theme updated.');
+        } else {
+            // Ensure unique slug
+            $baseSlug = $slug;
+            $counter = 1;
+            $check = $db->prepare("SELECT id FROM themes WHERE slug = ?");
+            $check->execute([$slug]);
+            while ($check->fetchColumn()) {
+                $slug = $baseSlug . '-' . $counter++;
+                $check->execute([$slug]);
+            }
+            $stmt = $db->prepare("INSERT INTO themes (name, slug, description, preview_color, auto_schedule, scheduled_from, scheduled_to, decorations, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+            $stmt->execute([$name, $slug, $description, $previewColor, $autoSchedule, $scheduledFrom, $scheduledTo, $decorationsJson]);
+            redirect('index.php?action=themes', 'Theme created.');
+        }
+    }
+    elseif ($actionPost === 'theme_delete') {
+        $stmt = $db->prepare("SELECT is_default FROM themes WHERE id = ?");
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        if ($row && $row['is_default']) {
+            redirect('index.php?action=themes', 'Cannot delete the default theme.', 'error');
+        }
+        $db->prepare("DELETE FROM themes WHERE id = ?")->execute([$id]);
+        redirect('index.php?action=themes', 'Theme deleted.');
+    }
+    elseif ($actionPost === 'theme_activate') {
+        $db->prepare("UPDATE themes SET is_live = 0, is_staging = 0")->execute();
+        $db->prepare("UPDATE themes SET is_live = 1 WHERE id = ?")->execute([$id]);
+        redirect('index.php?action=themes', 'Theme activated as Live.');
+    }
+    elseif ($actionPost === 'theme_staging') {
+        $db->prepare("UPDATE themes SET is_staging = 0")->execute();
+        $db->prepare("UPDATE themes SET is_staging = 1 WHERE id = ?")->execute([$id]);
+        redirect('index.php?action=themes', 'Theme set as Staging.');
+    }
+    elseif ($actionPost === 'theme_default') {
+        $db->prepare("UPDATE themes SET is_default = 0")->execute();
+        $db->prepare("UPDATE themes SET is_default = 1 WHERE id = ?")->execute([$id]);
+        redirect('index.php?action=themes', 'Theme set as Default.');
+    }
+    elseif ($actionPost === 'theme_duplicate') {
+        $stmt = $db->prepare("SELECT * FROM themes WHERE id = ?");
+        $stmt->execute([$id]);
+        $orig = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$orig) { redirect('index.php?action=themes', 'Theme not found.', 'error'); }
+        $newName = $orig['name'] . ' (Copy)';
+        $newSlug = slugify($newName);
+        $check = $db->prepare("SELECT id FROM themes WHERE slug = ?");
+        $check->execute([$newSlug]);
+        $counter = 1;
+        while ($check->fetchColumn()) {
+            $newSlug = slugify($orig['name'] . ' (Copy ' . $counter++ . ')');
+            $check->execute([$newSlug]);
+        }
+        $stmt = $db->prepare("INSERT INTO themes (name, slug, description, preview_color, css_variables, decorations, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())");
+        $stmt->execute([$newName, $newSlug, $orig['description'], $orig['preview_color'], $orig['css_variables'], $orig['decorations']]);
+        redirect('index.php?action=themes', 'Theme duplicated.');
+    }
+    elseif ($actionPost === 'theme_preview') {
+        $_SESSION['preview_theme_id'] = $id;
+        redirect(SITE_URL . '/index.php?theme_preview=1');
+    }
 }
 
 require_once __DIR__ . '/includes/header.php';
@@ -1837,6 +1949,269 @@ switch ($action) {
                 <button type="submit" class="btn btn-gold"><i class="fas fa-paper-plane me-2"></i>Send Notification</button>
                 <a href="index.php" class="btn btn-outline-dark-custom">Cancel</a>
             </form>
+        </div>
+    <?php break;
+
+    case 'themes':
+        $themes = $db->query("SELECT * FROM themes ORDER BY is_live DESC, is_staging DESC, is_default DESC, name ASC")->fetchAll();
+        $editTheme = null;
+        $editDecorations = null;
+        if ($id) {
+            $stmt = $db->prepare("SELECT * FROM themes WHERE id = ?");
+            $stmt->execute([$id]);
+            $editTheme = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($editTheme) {
+                $editDecorations = json_decode($editTheme['decorations'] ?? '{}', true);
+            }
+        }
+        ?>
+        <style>
+        #themeEditor .color-swatch {
+            width: 56px;
+            height: 56px;
+            padding: 3px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        #themeEditor .color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+        #themeEditor .color-swatch::-webkit-color-swatch { border: 2px solid #ddd; border-radius: 8px; }
+        #themeEditor .color-swatch::-moz-color-swatch { border: 2px solid #ddd; border-radius: 8px; }
+        </style>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-600 mb-0"><i class="fas fa-palette me-2 text-gold"></i><?= __t('themes') ?> (<?= count($themes) ?>)</h4>
+            <button class="btn btn-gold-sm" onclick="document.getElementById('themeEditor').style.display='block';document.getElementById('themeEditor').scrollIntoView({behavior:'smooth'});document.querySelector('#themeEditorForm [name=name]').focus()"><i class="fas fa-plus me-1"></i><?= __t('add_category') ?></button>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <?php foreach ($themes as $t):
+                $tc = escape($t['preview_color'] ?? '#FF8C00');
+                $badges = [];
+                if ($t['is_live']) $badges[] = ['Live', 'success'];
+                if ($t['is_staging']) $badges[] = ['Staging', 'info'];
+                if ($t['is_default']) $badges[] = ['Default', 'secondary'];
+                if (!$t['is_live'] && !$t['is_staging'] && !$t['is_default']) $badges[] = ['Inactive', 'dark'];
+            ?>
+            <div class="col-md-4">
+                <div class="border rounded-3 overflow-hidden" style="border-left:4px solid <?= $tc ?> !important;transition:all 0.2s" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow=''">
+                    <div class="p-3" style="background:linear-gradient(135deg, <?= $tc ?>15, #fff)">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <h6 class="fw-600 mb-1"><?= escape($t['name']) ?></h6>
+                                <small class="text-muted"><?= escape($t['slug']) ?></small>
+                            </div>
+                            <div class="d-flex flex-wrap gap-1">
+                                <?php foreach ($badges as [$label, $color]): ?>
+                                    <span class="badge bg-<?= $color ?>"><?= $label ?></span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <?php if ($t['description']): ?>
+                            <p class="small text-muted mb-2"><?= escape(mb_substr($t['description'], 0, 80)) ?><?= mb_strlen($t['description']) > 80 ? '...' : '' ?></p>
+                        <?php endif; ?>
+                        <div class="small text-muted mb-2">
+                            <i class="far fa-clock me-1"></i>Updated: <?= date('M j, Y', strtotime($t['updated_at'])) ?>
+                        </div>
+                        <div class="d-flex gap-1 flex-wrap">
+                            <a href="index.php?action=themes&id=<?= $t['id'] ?>" class="btn btn-sm btn-outline-dark-custom" title="Edit"><i class="fas fa-edit"></i></a>
+                            <?php if (!$t['is_live']): ?>
+                            <form method="POST" class="d-inline"><?= csrf() ?><input type="hidden" name="admin_action" value="theme_activate"><input type="hidden" name="id" value="<?= $t['id'] ?>"><button type="submit" class="btn btn-sm btn-outline-success" title="Activate as Live"><i class="fas fa-check-circle"></i></button></form>
+                            <?php endif; ?>
+                            <?php if (!$t['is_staging']): ?>
+                            <form method="POST" class="d-inline"><?= csrf() ?><input type="hidden" name="admin_action" value="theme_staging"><input type="hidden" name="id" value="<?= $t['id'] ?>"><button type="submit" class="btn btn-sm btn-outline-info" title="Set as Staging"><i class="fas fa-flask"></i></button></form>
+                            <?php endif; ?>
+                            <?php if (!$t['is_default']): ?>
+                            <form method="POST" class="d-inline"><?= csrf() ?><input type="hidden" name="admin_action" value="theme_default"><input type="hidden" name="id" value="<?= $t['id'] ?>"><button type="submit" class="btn btn-sm btn-outline-secondary" title="Set as Default"><i class="fas fa-star"></i></button></form>
+                            <?php endif; ?>
+                            <form method="POST" class="d-inline"><?= csrf() ?><input type="hidden" name="admin_action" value="theme_duplicate"><input type="hidden" name="id" value="<?= $t['id'] ?>"><button type="submit" class="btn btn-sm btn-outline-info" title="Duplicate"><i class="fas fa-copy"></i></button></form>
+                            <form method="POST" class="d-inline"><?= csrf() ?><input type="hidden" name="admin_action" value="theme_preview"><input type="hidden" name="id" value="<?= $t['id'] ?>"><button type="submit" class="btn btn-sm btn-outline-warning" title="Preview Site with this Theme"><i class="fas fa-eye"></i></button></form>
+                            <?php if (!$t['is_default']): ?>
+                            <form method="POST" class="d-inline" onsubmit="return confirm('Delete this theme?')"><?= csrf() ?><input type="hidden" name="admin_action" value="theme_delete"><input type="hidden" name="id" value="<?= $t['id'] ?>"><button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="fas fa-trash"></i></button></form>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <!-- Theme Editor -->
+        <div id="themeEditor" class="border p-4 mb-4" style="display:<?= $editTheme ? 'block' : 'none' ?>">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-600 mb-0"><i class="fas fa-palette me-2 text-gold"></i>Theme Editor</h5>
+                <button type="button" class="btn btn-sm btn-outline-dark-custom" onclick="document.getElementById('themeEditor').style.display='none'"><?= __t('cancel') ?></button>
+            </div>
+            <form method="POST" id="themeEditorForm">
+                <?= csrf() ?><input type="hidden" name="admin_action" value="theme_save">
+                <?php if ($editTheme): ?><input type="hidden" name="id" value="<?= $editTheme['id'] ?>"><?php endif; ?>
+
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-600">Name</label>
+                        <input type="text" name="name" class="form-control" value="<?= escape($editTheme['name'] ?? '') ?>" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-600"><?= __t('description') ?></label>
+                        <input type="text" name="description" class="form-control" value="<?= escape($editTheme['description'] ?? '') ?>">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-600">Preview Color</label>
+                        <input type="color" name="preview_color" class="form-control form-control-color" value="<?= escape($editTheme['preview_color'] ?? '#FF8C00') ?>">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end gap-2">
+                        <div class="form-check">
+                            <input type="checkbox" name="auto_schedule" class="form-check-input" id="auto_schedule" <?= ($editTheme['auto_schedule'] ?? 0) ? 'checked' : '' ?> onchange="document.getElementById('scheduleDates').style.display=this.checked?'flex':'none'">
+                            <label class="form-check-label small" for="auto_schedule">Auto Schedule</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="scheduleDates" class="row g-3 mt-1" style="display:<?= ($editTheme['auto_schedule'] ?? 0) ? 'flex' : 'none' ?>">
+                    <div class="col-md-3">
+                        <label class="form-label small">From</label>
+                        <input type="date" name="scheduled_from" class="form-control" value="<?= escape($editTheme['scheduled_from'] ?? '') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">To</label>
+                        <input type="date" name="scheduled_to" class="form-control" value="<?= escape($editTheme['scheduled_to'] ?? '') ?>">
+                    </div>
+                </div>
+
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h6 class="fw-600 mb-2 border-bottom pb-1">Quick Styles — Light Mode</h6>
+                    </div>
+                    <?php
+                    $qs = $editDecorations['quick_styles'] ?? [];
+                    $lightFields = [
+                        'qs_bg_color' => ['Bg Color', 'bg_color', '#ffffff'],
+                        'qs_text_color' => ['Text Color', 'text_color', '#212529'],
+                        'qs_link_color' => ['Link Color', 'link_color', '#0011ff'],
+                        'qs_heading_color' => ['Heading Color', 'heading_color', '#1a1a2e'],
+                        'qs_btn_bg' => ['Button Bg', 'btn_bg', '#ff8c00'],
+                        'qs_btn_text' => ['Button Text', 'btn_text', '#ffffff'],
+                        'qs_navbar_bg' => ['Navbar Bg', 'navbar_bg', '#ff8c00'],
+                        'qs_card_bg' => ['Card Bg', 'card_bg', '#ffffff'],
+                    ];
+                    ?>
+                    <div class="d-flex flex-wrap gap-3">
+                    <?php foreach ($lightFields as $key => [$label, $storedKey, $default]): ?>
+                    <div class="text-center" style="width:64px">
+                        <input type="color" name="<?= $key ?>" class="form-control color-swatch" value="<?= escape($qs[$storedKey] ?? $default) ?>" title="<?= $label ?>">
+                        <span class="d-block text-muted mt-1" style="font-size:12px;line-height:1.2;font-weight:500"><?= $label ?></span>
+                    </div>
+                    <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <h6 class="fw-600 mb-2 border-bottom pb-1">Quick Styles — Dark Mode</h6>
+                    </div>
+                    <?php
+                    $darkFields = [
+                        'qs_dark_bg_color' => ['Bg Color', 'dark_bg_color', '#121212'],
+                        'qs_dark_text_color' => ['Text Color', 'dark_text_color', '#f5f0eb'],
+                        'qs_dark_link_color' => ['Link Color', 'dark_link_color', '#ff8c00'],
+                        'qs_dark_heading_color' => ['Heading Color', 'dark_heading_color', '#f5f0eb'],
+                        'qs_dark_btn_bg' => ['Button Bg', 'dark_btn_bg', '#ff8c00'],
+                        'qs_dark_btn_text' => ['Button Text', 'dark_btn_text', '#ffffff'],
+                        'qs_dark_navbar_bg' => ['Navbar Bg', 'dark_navbar_bg', '#121212'],
+                        'qs_dark_card_bg' => ['Card Bg', 'dark_card_bg', '#1e1e1e'],
+                    ];
+                    ?>
+                    <div class="d-flex flex-wrap gap-3">
+                    <?php foreach ($darkFields as $key => [$label, $storedKey, $default]): ?>
+                    <div class="text-center" style="width:64px">
+                        <input type="color" name="<?= $key ?>" class="form-control color-swatch" value="<?= escape($qs[$storedKey] ?? $default) ?>" title="<?= $label ?>">
+                        <span class="d-block text-muted mt-1" style="font-size:12px;line-height:1.2;font-weight:500"><?= $label ?></span>
+                    </div>
+                    <?php endforeach; ?>
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <label class="form-label small">Border Radius</label>
+                        <input type="text" name="qs_border_radius" class="form-control" value="<?= escape($qs['border_radius'] ?? '') ?>" placeholder="e.g. 8px">
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <label class="form-label small">Font Size</label>
+                        <input type="text" name="qs_font_size" class="form-control" value="<?= escape($qs['font_size'] ?? '') ?>" placeholder="e.g. 16px">
+                    </div>
+                </div>
+
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h6 class="fw-600 mb-2 border-bottom pb-1">Decorations &amp; Effects</h6>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check mb-2">
+                            <input type="checkbox" name="decor_enabled" class="form-check-input" id="decor_enabled" <?= ($editDecorations['enabled'] ?? false) ? 'checked' : '' ?>>
+                            <label class="form-check-label small" for="decor_enabled">Enable Decorations</label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input type="checkbox" name="decor_snowflakes" class="form-check-input" id="decor_snowflakes" <?= ($editDecorations['snowflakes'] ?? false) ? 'checked' : '' ?>>
+                            <label class="form-check-label small" for="decor_snowflakes">Snowflakes ❄️</label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input type="checkbox" name="decor_confetti" class="form-check-input" id="decor_confetti" <?= ($editDecorations['confetti'] ?? false) ? 'checked' : '' ?>>
+                            <label class="form-check-label small" for="decor_confetti">Confetti 🎉</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Particles</label>
+                        <select name="decor_particles" class="form-select">
+                            <option value="none" <?= ($editDecorations['particles'] ?? 'none') === 'none' ? 'selected' : '' ?>>None</option>
+                            <option value="snow" <?= ($editDecorations['particles'] ?? '') === 'snow' ? 'selected' : '' ?>>Snow</option>
+                            <option value="rain" <?= ($editDecorations['particles'] ?? '') === 'rain' ? 'selected' : '' ?>>Rain</option>
+                            <option value="mist" <?= ($editDecorations['particles'] ?? '') === 'mist' ? 'selected' : '' ?>>Mist</option>
+                            <option value="smoke" <?= ($editDecorations['particles'] ?? '') === 'smoke' ? 'selected' : '' ?>>Smoke</option>
+                            <option value="stone_rain" <?= ($editDecorations['particles'] ?? '') === 'stone_rain' ? 'selected' : '' ?>>Stone Rain</option>
+                            <option value="gold_dust" <?= ($editDecorations['particles'] ?? '') === 'gold_dust' ? 'selected' : '' ?>>Gold Dust</option>
+                            <option value="stars" <?= ($editDecorations['particles'] ?? '') === 'stars' ? 'selected' : '' ?>>Stars</option>
+                            <option value="hearts" <?= ($editDecorations['particles'] ?? '') === 'hearts' ? 'selected' : '' ?>>Hearts</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Particle Count</label>
+                        <input type="number" name="decor_particle_count" class="form-control" value="<?= (int)($editDecorations['particle_count'] ?? 50) ?>" min="0" max="200">
+                    </div>
+                </div>
+
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <h6 class="fw-600 mb-2 border-bottom pb-1">Themed Banner Badge</h6>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-check pt-2">
+                            <input type="checkbox" name="badge_enabled" class="form-check-input" id="badge_enabled" <?= ($editDecorations['badge_enabled'] ?? false) ? 'checked' : '' ?>>
+                            <label class="form-check-label small" for="badge_enabled">Show Badge</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Badge Text (EN)</label>
+                        <input type="text" name="badge_text_en" class="form-control" value="<?= escape($editDecorations['badge_text_en'] ?? '') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Badge Text (SW)</label>
+                        <input type="text" name="badge_text_sw" class="form-control" value="<?= escape($editDecorations['badge_text_sw'] ?? '') ?>">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">Badge Icon</label>
+                        <input type="text" name="badge_icon" class="form-control" value="<?= escape($editDecorations['badge_icon'] ?? '') ?>" placeholder="fa-truck">
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-gold"><i class="fas fa-save me-1"></i><?= __t('save') ?></button>
+                    <button type="button" class="btn btn-outline-dark-custom" onclick="document.getElementById('themeEditor').style.display='none'"><?= __t('cancel') ?></button>
+                </div>
+            </form>
+        </div>
+
+        <div class="bg-light p-3 rounded-3 small">
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <i class="fas fa-info-circle text-gold"></i>
+                <span class="fw-600"><?= __t('themes') ?> Guide</span>
+            </div>
+            <p class="mb-0 text-muted" style="white-space:pre-line"><?= __t('theme_guide') ?></p>
         </div>
     <?php break;
 

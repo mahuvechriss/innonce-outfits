@@ -222,28 +222,131 @@ function getActiveTheme(): ?array {
     return null;
 }
 
+function adjustBrightness(string $hex, int $percent): string {
+    $hex = ltrim($hex, '#');
+    if (strlen($hex) === 3) $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+    $r = hexdec(substr($hex, 0, 2));
+    $g = hexdec(substr($hex, 2, 2));
+    $b = hexdec(substr($hex, 4, 2));
+    $r = max(0, min(255, $r + $percent));
+    $g = max(0, min(255, $g + $percent));
+    $b = max(0, min(255, $b + $percent));
+    return sprintf('#%02x%02x%02x', $r, $g, $b);
+}
+
 function renderThemeCss(): string {
     $theme = getActiveTheme();
     if (!$theme) return '';
+
     $data = json_decode($theme['css_variables'], true);
-    if (!$data || !is_array($data)) return '';
-    $darkVars = $data['_dark'] ?? [];
-    unset($data['_dark']);
+    $dec = json_decode($theme['decorations'] ?? '{}', true);
+    $qs = $dec['quick_styles'] ?? [];
+
+    $accent = $qs['btn_bg'] ?? ($data['--orange'] ?? '#FF8C00');
+    $bgBody = $qs['bg_color'] ?? ($data['--bg-body'] ?? '#FFF5EB');
+    $textPrimary = $qs['text_color'] ?? ($data['--text-primary'] ?? '#121212');
+    $navbarBg = $qs['navbar_bg'] ?? ($data['--bg-navbar'] ?? '#FF8C00');
+    $cardBg = $qs['card_bg'] ?? ($data['--bg-card'] ?? '#ffffff');
+    $linkColor = $qs['link_color'] ?? ($data['--orange'] ?? '#FF8C00');
+    $headingColor = $qs['heading_color'] ?? $textPrimary;
+    $btnText = $qs['btn_text'] ?? '#ffffff';
+
+    $vars = [
+        '--orange' => $accent,
+        '--orange-light' => adjustBrightness($accent, 40),
+        '--orange-dark' => adjustBrightness($accent, -30),
+        '--orange-gradient' => "linear-gradient(135deg,{$accent} 0%," . adjustBrightness($accent, -20) . " 50%,{$accent} 100%)",
+        '--gold' => $accent,
+        '--gold-light' => adjustBrightness($accent, 40),
+        '--gold-dark' => adjustBrightness($accent, -30),
+        '--gold-gradient' => "linear-gradient(135deg,{$accent} 0%," . adjustBrightness($accent, -20) . " 50%,{$accent} 100%)",
+        '--bg-body' => $bgBody,
+        '--bg-navbar' => $navbarBg,
+        '--bg-card' => $cardBg,
+        '--text-primary' => $textPrimary,
+        '--text-secondary' => adjustBrightness($textPrimary, 40),
+        '--text-on-orange' => $btnText,
+        '--border-light' => adjustBrightness($bgBody, -20),
+        '--dark' => '#121212',
+        '--darker' => '#0A0A0A',
+        '--light' => $bgBody,
+        '--bg-hero' => "linear-gradient(135deg,{$accent} 0%," . adjustBrightness($accent, -20) . " 50%," . adjustBrightness($accent, -40) . " 100%)",
+        '--bg-section-alt' => adjustBrightness($bgBody, -10),
+        '--shadow-sm' => '0 2px 8px rgba(0,0,0,0.08)',
+        '--shadow-md' => '0 4px 20px rgba(0,0,0,0.12)',
+        '--shadow-lg' => '0 8px 32px rgba(0,0,0,0.16)',
+        '--shadow-gold' => "0 4px 20px " . adjustBrightness($accent, 0) . '40',
+    ];
+
+    $borderRadius = $qs['border_radius'] ?? '';
+    $brMap = ['none' => '0', 'sm' => '4px', 'md' => '8px', 'lg' => '16px'];
+    $brVal = $brMap[$borderRadius] ?? '';
+    $vars['--radius'] = $brVal ?: '10px';
+    $vars['--radius-lg'] = $brVal ?: '16px';
+
+    // Dark mode
+    $darkBg = $qs['dark_bg_color'] ?? '#121212';
+    $darkText = $qs['dark_text_color'] ?? '#F5F0EB';
+    $darkNavbar = $qs['dark_navbar_bg'] ?? '#121212';
+    $darkCard = $qs['dark_card_bg'] ?? '#1E1E1E';
+    $darkLink = $qs['dark_link_color'] ?? $accent;
+    $darkBtn = $qs['dark_btn_bg'] ?? $accent;
+    $darkBtnText = $qs['dark_btn_text'] ?? '#ffffff';
+    $darkHeading = $qs['dark_heading_color'] ?? $darkText;
+
+    $darkVars = [
+        '--orange' => $accent,
+        '--orange-light' => adjustBrightness($accent, 40),
+        '--orange-dark' => adjustBrightness($accent, -30),
+        '--orange-gradient' => "linear-gradient(135deg,{$accent} 0%," . adjustBrightness($accent, -20) . " 50%,{$accent} 100%)",
+        '--gold' => $accent,
+        '--gold-light' => adjustBrightness($accent, 40),
+        '--gold-dark' => adjustBrightness($accent, -30),
+        '--gold-gradient' => "linear-gradient(135deg,{$accent} 0%," . adjustBrightness($accent, -20) . " 50%,{$accent} 100%)",
+        '--bg-body' => $darkBg,
+        '--bg-navbar' => $darkNavbar,
+        '--bg-card' => $darkCard,
+        '--text-primary' => $darkText,
+        '--text-secondary' => adjustBrightness($darkText, -40),
+        '--text-on-orange' => $darkBtnText,
+        '--border-light' => '#333',
+        '--dark' => '#0A0A0A',
+        '--darker' => '#050505',
+        '--light' => '#1A1A1A',
+        '--bg-hero' => "linear-gradient(135deg,#0A0A0A 0%,#1A1A1A 50%,#0A0A0A 100%)",
+        '--bg-section-alt' => '#1A1A1A',
+        '--shadow-sm' => '0 2px 8px rgba(0,0,0,0.3)',
+        '--shadow-md' => '0 4px 20px rgba(0,0,0,0.4)',
+        '--shadow-lg' => '0 8px 32px rgba(0,0,0,0.5)',
+        '--shadow-gold' => "0 4px 20px " . adjustBrightness($accent, 0) . '40',
+        '--radius' => $vars['--radius'],
+        '--radius-lg' => $vars['--radius-lg'],
+    ];
+
+    // Merge css_variables on top for backward compatibility
+    $oldDark = [];
+    if (is_array($data)) {
+        $oldDark = $data['_dark'] ?? [];
+        unset($data['_dark']);
+        $vars = array_merge($vars, $data);
+    }
+    if ($oldDark) {
+        $darkVars = array_merge($darkVars, $oldDark);
+    }
+
     $css = '';
     foreach ([':root', '[data-theme="light"]'] as $selector) {
         $css .= $selector . '{';
-        foreach ($data as $key => $value) {
+        foreach ($vars as $key => $value) {
             $css .= $key . ':' . $value . ';';
         }
         $css .= '}';
     }
-    if ($darkVars) {
-        $css .= '[data-theme="dark"]{';
-        foreach ($darkVars as $key => $value) {
-            $css .= $key . ':' . $value . ';';
-        }
-        $css .= '}';
+    $css .= '[data-theme="dark"]{';
+    foreach ($darkVars as $key => $value) {
+        $css .= $key . ':' . $value . ';';
     }
+    $css .= '}';
     return '<style id="active-theme-css">' . $css . '</style>';
 }
 
@@ -257,7 +360,6 @@ function getThemeDecorations(): array {
 
 function renderThemeDecorations(): string {
     $dec = getThemeDecorations();
-    if (empty($dec['enabled'])) return '';
 
     $html = '';
     $css = '';
@@ -267,8 +369,8 @@ function renderThemeDecorations(): string {
         ? ($dec['badge_text_sw'] ?? '')
         : ($dec['badge_text_en'] ?? '');
 
-    // Badge / banner (kept but user prefers visual effects)
-    if (!empty($dec['badge_enabled']) && $badgeText) {
+    // Badge / banner
+    if (!empty($dec['enabled']) && !empty($dec['badge_enabled']) && $badgeText) {
         $icon = !empty($dec['badge_icon']) ? '<i class="fas ' . $dec['badge_icon'] . ' me-2"></i>' : '';
         $html .= '<div class="theme-badge" id="themeBadge">';
         $html .= $icon . escape($badgeText);
@@ -276,7 +378,7 @@ function renderThemeDecorations(): string {
         $html .= '</div>';
     }
 
-    $particleType = $dec['particles'] ?? 'none';
+    $particleType = !empty($dec['enabled']) ? ($dec['particles'] ?? 'none') : 'none';
     $count = min(120, max(10, (int)($dec['particle_count'] ?? 50)));
 
     // ---- SNOW ----
@@ -377,6 +479,38 @@ function renderThemeDecorations(): string {
         $js .= '(function(){function i(){var c='.$count.',p=document.createDocumentFragment();for(var j=0;j<c;j++){var e=document.createElement("div");e.className="theme-particle";var s=3+Math.random()*4;e.style.cssText="width:"+s+"px;height:"+s+"px;left:"+(2+Math.random()*96)+"%;bottom:"+(2+Math.random()*80)+"%;background:radial-gradient(circle at 30% 30%,#FFFFAA,#FFD700);border-radius:50%;box-shadow:0 0 "+(s*3)+"px rgba(255,255,100,0.6);animation:fireflyFloat "+(15+Math.random()*20)+"s ease-in-out infinite,fireflyBlink "+(1+Math.random()*2.5)+"s ease-in-out infinite;animation-delay:"+(Math.random()*20)+"s,0s";p.appendChild(e)}document.body.appendChild(p)}if(document.body)i();else window.addEventListener("DOMContentLoaded",i)})();';
     }
 
+    // ---- RAIN ----
+    elseif ($particleType === 'rain') {
+        $css .= '
+.theme-particle{position:fixed;top:0;pointer-events:none;z-index:9999;will-change:transform}
+@keyframes rainFall{0%{transform:translateY(-5vh) translateX(0);opacity:0}10%{opacity:0.7}90%{opacity:0.3}100%{transform:translateY(105vh) translateX(-20px);opacity:0}}';
+        $js .= '(function(){function i(){var c='.($count*2).',p=document.createDocumentFragment();for(var j=0;j<c;j++){var e=document.createElement("div");e.className="theme-particle";var h=12+Math.random()*20;e.style.cssText="width:2px;height:"+h+"px;left:"+(Math.random()*100)+"%;top:-"+(h+10)+"px;background:linear-gradient(180deg,transparent,rgba(150,180,255,0.6));border-radius:0 0 2px 2px;animation:rainFall "+(0.5+Math.random()*0.8)+"s linear infinite;animation-delay:"+(Math.random()*1.5)+"s";p.appendChild(e)}document.body.appendChild(p)}if(document.body)i();else window.addEventListener("DOMContentLoaded",i)})();';
+    }
+
+    // ---- MIST ----
+    elseif ($particleType === 'mist') {
+        $css .= '
+.theme-particle{position:fixed;bottom:0;pointer-events:none;z-index:9999;will-change:transform}
+@keyframes mistDrift{0%{transform:translateX(-10vw) scale(0.8);opacity:0}15%{opacity:0.4}75%{opacity:0.2}100%{transform:translateX(110vw) scale(1.2);opacity:0}}';
+        $js .= '(function(){function i(){var c='.($count/2).',p=document.createDocumentFragment();for(var j=0;j<c;j++){var e=document.createElement("div");e.className="theme-particle";var s=40+Math.random()*80;e.style.cssText="width:"+s+"px;height:"+(s*0.4)+"px;left:-"+(s+10)+"px;bottom:"+(5+Math.random()*50)+"%;background:radial-gradient(ellipse at center,rgba(200,210,230,"+(0.08+Math.random()*0.12)+"),transparent);border-radius:50%;animation:mistDrift "+(20+Math.random()*30)+"s ease-in-out infinite;animation-delay:"+(Math.random()*20)+"s";p.appendChild(e)}document.body.appendChild(p)}if(document.body)i();else window.addEventListener("DOMContentLoaded",i)})();';
+    }
+
+    // ---- SMOKE ----
+    elseif ($particleType === 'smoke') {
+        $css .= '
+.theme-particle{position:fixed;bottom:0;pointer-events:none;z-index:9999;will-change:transform}
+@keyframes smokeRise{0%{transform:translateY(0) scale(0.5);opacity:0}20%{opacity:0.3}70%{opacity:0.15}100%{transform:translateY(-110vh) scale(2.5);opacity:0}}';
+        $js .= '(function(){function i(){var c='.($count/2).',p=document.createDocumentFragment();for(var j=0;j<c;j++){var e=document.createElement("div");e.className="theme-particle";var s=10+Math.random()*30;e.style.cssText="width:"+s+"px;height:"+s+"px;left:"+(5+Math.random()*90)+"%;bottom:"+(2+Math.random()*20)+"%;background:radial-gradient(circle at center,rgba(180,180,190,"+(0.06+Math.random()*0.08)+"),transparent);border-radius:50%;filter:blur("+(2+Math.random()*4)+"px);animation:smokeRise "+(10+Math.random()*15)+"s ease-out infinite;animation-delay:"+(Math.random()*10)+"s";p.appendChild(e)}document.body.appendChild(p)}if(document.body)i();else window.addEventListener("DOMContentLoaded",i)})();';
+    }
+
+    // ---- STONE RAIN ----
+    elseif ($particleType === 'stone_rain') {
+        $css .= '
+.theme-particle{position:fixed;top:0;pointer-events:none;z-index:9999;will-change:transform}
+@keyframes stoneFall{0%{transform:translateY(-5vh) rotate(0deg);opacity:0}10%{opacity:0.8}90%{opacity:0.6}100%{transform:translateY(105vh) rotate(360deg);opacity:0}}';
+        $js .= '(function(){function i(){var c='.$count.',p=document.createDocumentFragment();for(var j=0;j<c;j++){var e=document.createElement("div");e.className="theme-particle";var s=6+Math.random()*12;e.style.cssText="width:"+s+"px;height:"+(s*(0.6+Math.random()*0.6))+"px;left:"+(2+Math.random()*96)+"%;top:-"+(s+10)+"px;background:radial-gradient(circle at 35% 35%,#8B7355,#5C4033,#3E2723);border-radius:"+(2+Math.random()*4)+"px;box-shadow:inset -2px -2px 4px rgba(0,0,0,0.4),inset 2px 2px 4px rgba(255,255,255,0.15);animation:stoneFall "+(3+Math.random()*4)+"s ease-in infinite;animation-delay:"+(Math.random()*5)+"s";p.appendChild(e)}document.body.appendChild(p)}if(document.body)i();else window.addEventListener("DOMContentLoaded",i)})();';
+    }
+
     if ($css) $html .= '<style id="theme-decorations-css">' . $css . '</style>';
     if ($js) $html .= '<script id="theme-decorations-js">' . $js . '</script>';
 
@@ -454,14 +588,6 @@ function renderThemeDecorations(): string {
     }
     if ($qsCss) {
         $html .= '<style id="theme-quick-styles">' . $qsCss . '</style>';
-    }
-
-    // Custom CSS/JS from theme
-    if (!empty($dec['custom_css'])) {
-        $html .= '<style id="theme-custom-css">' . $dec['custom_css'] . '</style>';
-    }
-    if (!empty($dec['custom_js'])) {
-        $html .= '<script id="theme-custom-js">' . $dec['custom_js'] . '</script>';
     }
 
     return $html;
